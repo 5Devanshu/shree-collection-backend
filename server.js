@@ -16,12 +16,14 @@ import cartRoutes from './modules/cart/cart.routes.js';
 import checkoutRoutes from './modules/checkout/checkout.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import searchRoutes from './modules/search/search.routes.js';
+import customerRoutes from './modules/customer/customer.routes.js';
 
 // Load models
 import './modules/auth/auth.model.js';
 import './modules/category/category.model.js';
 import './modules/product/product.model.js';
 import './modules/order/order.model.js';
+import './models/Customer.js';
 
 dotenv.config();
 
@@ -65,6 +67,7 @@ app.get('/', (req, res) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/customers', customerRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
