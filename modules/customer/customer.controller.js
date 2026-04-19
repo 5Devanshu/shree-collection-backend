@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import Customer from '../../models/Customer.js';
-import Order from '../../models/Order.js';
+import Order from '../../modules/order/order.model.js';
 import { sendWelcomeEmail } from '../../services/email.service.js';
 
 const generateCustomerToken = (id) =>
