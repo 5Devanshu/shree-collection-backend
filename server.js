@@ -24,6 +24,7 @@ import './modules/category/category.model.js';
 import './modules/product/product.model.js';
 import './modules/order/order.model.js';
 import './models/Customer.js';
+import './models/Order.js';
 
 dotenv.config();
 
