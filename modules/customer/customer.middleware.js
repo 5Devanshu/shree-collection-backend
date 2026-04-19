@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import Customer from '../../../models/Customer.js';
+import Customer from '../../models/Customer.js';
 
 // ── Protect customer routes — must be logged in ───────────────────────────────
 export const protectCustomer = async (req, res, next) => {

@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
-import Customer from '../../../models/Customer.js';
-import { sendWelcomeEmail } from '../../../services/email.service.js';
+import Customer from '../../models/Customer.js';
+import { sendWelcomeEmail } from '../../services/email.service.js';
 
 const generateCustomerToken = (id) =>
   jwt.sign({ id, role: 'customer' }, process.env.JWT_SECRET, {
