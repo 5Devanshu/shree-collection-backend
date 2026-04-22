@@ -17,6 +17,7 @@ import checkoutRoutes from './modules/checkout/checkout.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import searchRoutes from './modules/search/search.routes.js';
 import customerRoutes from './modules/customer/customer.routes.js';
+import policiesRoutes from './modules/policies/routes.js';
 
 // Load models
 import './modules/auth/auth.model.js';
@@ -76,6 +77,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/policies', policiesRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use(notFound);
