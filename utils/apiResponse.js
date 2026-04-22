@@ -3,7 +3,7 @@
  * Provides consistent response structure across all endpoints
  */
 
-class ApiResponse {
+export default class ApiResponse {
   constructor(statusCode, data, message = 'Success') {
     this.statusCode = statusCode;
     this.data = data;
@@ -11,5 +11,3 @@ class ApiResponse {
     this.success = statusCode < 400;
   }
 }
-
-module.exports = ApiResponse;

@@ -1,4 +1,4 @@
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
 
 /**
  * Generate JWT Token
@@ -12,4 +12,4 @@ const generateToken = (id, expiresIn = process.env.JWT_EXPIRES_IN || '7d') => {
   });
 };
 
-module.exports = generateToken;
+export default generateToken;
