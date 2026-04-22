@@ -47,6 +47,9 @@ export const getProductByIdService = async (id) => {
 
 // Create a new product — used by AdminProducts "+ Add Product"
 export const createProductService = async (data) => {
+  if (!data.title || !data.title.trim()) {
+    throw new Error('Product title is required');
+  }
   const product = await Product.create(data);
   return product;
 };
