@@ -1,5 +1,5 @@
+import asyncHandler from '../../utils/asyncHandler.js';
 import * as service from './discount.service.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
 
 // Get all discounts — used by AdminDiscounts page
 export const getAllDiscounts = asyncHandler(async (req, res) => {

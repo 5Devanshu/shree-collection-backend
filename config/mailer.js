@@ -1,4 +1,4 @@
-const nodemailer = require('nodemailer');
+import nodemailer from 'nodemailer';
 
 const transporter = nodemailer.createTransport({
   host:   process.env.MAIL_HOST,
@@ -113,4 +113,4 @@ const sendOrderConfirmationEmail = async ({ to, customerName, orderId, items, to
   });
 };
 
-module.exports = { sendStockBackEmail, sendOrderConfirmationEmail };
+export { sendStockBackEmail, sendOrderConfirmationEmail };

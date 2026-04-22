@@ -3,7 +3,7 @@
  * Centralizes all environment configuration
  */
 
-module.exports = {
+export default {
   // Server
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
