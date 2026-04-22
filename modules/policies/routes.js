@@ -3,7 +3,8 @@
  * Serves Terms & Conditions, Privacy Policy, Shipping Policy, and Return Policy
  */
 
-const express = require('express');
+import express from 'express';
+
 const router = express.Router();
 
 // Terms and Conditions
@@ -170,4 +171,4 @@ router.get('/', (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;
