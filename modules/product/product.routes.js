@@ -13,17 +13,19 @@ import protect from '../auth/auth.middleware.js';
 const router = express.Router();
 
 // ─── Public Routes ──────────────────────────────────────────
+// IMPORTANT: Specific routes MUST come before generic /:id route
+
+// All products (with optional filters & pagination)
+router.get('/', getAllProducts);
+
 // Homepage FeaturedGrid
 router.get('/featured', getFeaturedProducts);
 
 // CategoryPage — /collections/:category
 router.get('/category/:slug', getProductsByCategory);
 
-// ProductDescription — /product/:id
+// ProductDescription — /product/:id (most specific, goes last)
 router.get('/:id', getProductById);
-
-// All products (with optional filters & pagination)
-router.get('/', getAllProducts);
 
 // ─── Admin Protected Routes ──────────────────────────────────
 // AdminProducts — "+ Add Product"
