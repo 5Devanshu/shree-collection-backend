@@ -19,7 +19,7 @@ module.exports = {
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
 
   // Cloudinary
-  CLOUDINARY_NAME: process.env.CLOUDINARY_NAME,
+  CLOUDINARY_NAME: process.env.CLOUDINARY_NAME,           // cloud_name for Cloudinary config
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
 
