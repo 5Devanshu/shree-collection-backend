@@ -40,6 +40,7 @@ app.use(morgan('dev'));
 // CORS configuration to support multiple origins
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  'https://shreecollection.co.in',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean);
