@@ -1,26 +1,5 @@
 import * as productService from './product.service.js';
-
-// ── Helper: Normalize product data for API responses ──────────────────────────
-// Converts image.url into a flat image string for frontend compatibility
-const normalizeProduct = (product) => {
-  if (!product) return product;
-  
-  const normalized = product.toObject ? product.toObject() : { ...product };
-  
-  // Flatten image structure: { url, publicId } → string URL
-  if (typeof normalized.image === 'object' && normalized.image?.url) {
-    normalized.image = normalized.image.url;
-  }
-  
-  return normalized;
-};
-
-const normalizeProducts = (products) => {
-  if (Array.isArray(products)) {
-    return products.map(normalizeProduct);
-  }
-  return normalizeProduct(products);
-};
+import { normalizeProduct, normalizeProducts } from '../../utils/normalizeProduct.js';
 
 // GET /api/products
 export const getAllProducts = async (req, res) => {

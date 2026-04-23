@@ -1,4 +1,5 @@
 import * as searchService from './search.service.js';
+import { normalizeProducts } from '../../utils/normalizeProduct.js';
 
 // GET /api/search
 // Main search endpoint — triggered by Navbar.jsx "Search" link.
@@ -8,7 +9,11 @@ import * as searchService from './search.service.js';
 export const search = async (req, res) => {
   try {
     const result = await searchService.combinedSearchService(req.query);
-    res.status(200).json({ success: true, ...result });
+    res.status(200).json({ 
+      success: true, 
+      ...result,
+      products: normalizeProducts(result.products || [])
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -22,7 +27,7 @@ export const getSuggestions = async (req, res) => {
   try {
     const { q, limit } = req.query;
     const suggestions = await searchService.getSearchSuggestionsService(q, limit);
-    res.status(200).json({ success: true, suggestions });
+    res.status(200).json({ success: true, suggestions: normalizeProducts(suggestions || []) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -34,7 +39,11 @@ export const getSuggestions = async (req, res) => {
 export const searchProducts = async (req, res) => {
   try {
     const result = await searchService.searchProductsService(req.query);
-    res.status(200).json({ success: true, ...result });
+    res.status(200).json({ 
+      success: true, 
+      ...result,
+      products: normalizeProducts(result.products || [])
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -64,7 +73,7 @@ export const getRelatedProducts = async (req, res) => {
       req.params.productId,
       limit
     );
-    res.status(200).json({ success: true, products });
+    res.status(200).json({ success: true, products: normalizeProducts(products || []) });
   } catch (error) {
     res.status(404).json({ success: false, message: error.message });
   }
