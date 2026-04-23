@@ -5,9 +5,10 @@
 /**
  * Normalize a single product document for API response
  * Converts nested image object to flat string URL
+ * Extracts categorySlug from populated category reference
  * 
- * Before: { title: "...", image: { url: "https://...", publicId: "xyz" } }
- * After:  { title: "...", image: "https://..." }
+ * Before: { title: "...", image: { url: "...", publicId: "xyz" }, category: { slug: "rings" } }
+ * After:  { title: "...", image: "https://...", categorySlug: "rings" }
  */
 export const normalizeProduct = (product) => {
   if (!product) return product;
@@ -26,6 +27,13 @@ export const normalizeProduct = (product) => {
       // If image is still an object but doesn't have url, clear it
       normalized.image = '';
     }
+  }
+  
+  // Extract categorySlug from populated category reference
+  // Backend returns: category: { _id: "...", name: "Rings", slug: "rings" }
+  // Frontend expects: categorySlug: "rings"
+  if (normalized.category && typeof normalized.category === 'object' && normalized.category.slug) {
+    normalized.categorySlug = normalized.category.slug;
   }
   
   return normalized;
