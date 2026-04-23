@@ -53,6 +53,8 @@ export const createProductService = async (data) => {
     throw new Error('Product title is required');
   }
   const product = await Product.create(data);
+  // Populate category after creation
+  await product.populate('category', 'name slug');
   return product;
 };
 
@@ -61,7 +63,7 @@ export const updateProductService = async (id, data) => {
   const product = await Product.findByIdAndUpdate(id, data, {
     new: true,
     runValidators: true,
-  });
+  }).populate('category', 'name slug');
   if (!product) throw new Error('Product not found');
   return product;
 };
