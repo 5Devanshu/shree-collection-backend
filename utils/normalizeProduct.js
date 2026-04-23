@@ -16,7 +16,34 @@ export const normalizeProduct = (product) => {
 
   // Handle field aliases for backward compatibility
   const name = productObj.name || productObj.title || '';
-  const mainImage = productObj.mainImage || productObj.image || '';
+  
+  // ✅ CRITICAL: Extract image URL as STRING, not object
+  // Image can come in multiple formats:
+  // 1. mainImage: "https://..." (string)
+  // 2. mainImage: { url: "https://...", publicId: "..." } (object)
+  // 3. image: "https://..." (string)
+  // 4. image: { url: "https://...", publicId: "..." } (object)
+  
+  let imageUrl = '';
+  
+  // Try mainImage first
+  if (typeof productObj.mainImage === 'string' && productObj.mainImage) {
+    imageUrl = productObj.mainImage;
+  } else if (productObj.mainImage && typeof productObj.mainImage === 'object' && productObj.mainImage.url) {
+    imageUrl = productObj.mainImage.url;
+  }
+  // Fallback to image field
+  else if (typeof productObj.image === 'string' && productObj.image) {
+    imageUrl = productObj.image;
+  } else if (productObj.image && typeof productObj.image === 'object' && productObj.image.url) {
+    imageUrl = productObj.image.url;
+  }
+  
+  // Ensure imageUrl is always a string, never an object
+  if (typeof imageUrl !== 'string') {
+    imageUrl = '';
+  }
+  
   const images = (productObj.images && productObj.images.length > 0) 
     ? productObj.images 
     : (productObj.gallery || []);
@@ -27,6 +54,7 @@ export const normalizeProduct = (product) => {
     title: name, // Include both for compatibility
     description: productObj.description,
     categorySlug: productObj.categorySlug,
+    category: productObj.category,
     price: productObj.price,
     discountEnabled: productObj.discountEnabled,
     discountedPrice: productObj.discountedPrice,
@@ -34,13 +62,16 @@ export const normalizeProduct = (product) => {
     stock: productObj.stock,
     images: images,
     gallery: images, // Include both for compatibility
-    mainImage: mainImage,
-    image: mainImage, // Include both for compatibility
+    mainImage: imageUrl,  // ✅ Always a string
+    image: imageUrl,      // ✅ Always a string (frontend uses this)
     tags: productObj.tags || [],
     featured: productObj.featured || productObj.isFeatured || false,
     isFeatured: productObj.featured || productObj.isFeatured || false,
     material: productObj.material,
     details: productObj.details || [],
+    stockStatus: productObj.stockStatus,
+    delivery: productObj.delivery,
+    returns: productObj.returns,
     createdAt: productObj.createdAt,
     updatedAt: productObj.updatedAt,
   };
