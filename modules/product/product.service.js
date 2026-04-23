@@ -3,16 +3,15 @@ import Product from './product.model.js';
 // Get all products — used by AdminProducts table
 export const getAllProductsService = async ({ page = 1, limit = 20, category, stockStatus } = {}) => {
   const filter = {};
-  if (category)    filter.category = category;
-  if (stockStatus) filter.stockStatus = stockStatus;
-  // For public API (no specific stockStatus filter), exclude out-of-stock products
-  else filter.stockStatus = { $ne: 'out_of_stock' };
+  if (category) filter.categorySlug = category;
+  
+  // If no specific filter, show all products (both in stock and out of stock)
+  // The frontend/admin will handle additional filtering
 
   const skip = (page - 1) * limit;
 
   const [products, total] = await Promise.all([
     Product.find(filter)
-      .populate('category', 'name slug')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit)),
@@ -24,37 +23,41 @@ export const getAllProductsService = async ({ page = 1, limit = 20, category, st
 
 // Get featured products — used by FeaturedGrid on homepage
 export const getFeaturedProductsService = async () => {
-  return Product.find({ isFeatured: true, stockStatus: { $ne: 'out_of_stock' } })
-    .populate('category', 'name slug')
-    .limit(6);
+  return Product.find({ 
+    $or: [
+      { featured: true },
+      { isFeatured: true }
+    ]
+  })
+    .limit(6)
+    .sort({ createdAt: -1 });
 };
 
 // Get products by category slug — used by CategoryPage (/collections/:category)
 export const getProductsByCategoryService = async (slug) => {
-  return Product.find({ stockStatus: { $ne: 'out_of_stock' } })
-    .populate({
-      path: 'category',
-      match: { slug },
-      select: 'name slug',
-    })
-    .then((products) => products.filter((p) => p.category !== null));
+  return Product.find({ categorySlug: slug })
+    .sort({ createdAt: -1 });
 };
 
 // Get single product by ID — used by ProductDescription (/product/:id)
 export const getProductByIdService = async (id) => {
-  const product = await Product.findById(id).populate('category', 'name slug');
+  const product = await Product.findById(id);
   if (!product) throw new Error('Product not found');
   return product;
 };
 
 // Create a new product — used by AdminProducts "+ Add Product"
 export const createProductService = async (data) => {
-  if (!data.title || !data.title.trim()) {
-    throw new Error('Product title is required');
+  // Ensure name field is set
+  if (!data.name && !data.title) {
+    throw new Error('Product name or title is required');
   }
+  
+  if (!data.name && data.title) {
+    data.name = data.title;
+  }
+
   const product = await Product.create(data);
-  // Populate category after creation
-  await product.populate('category', 'name slug');
   return product;
 };
 
@@ -63,7 +66,7 @@ export const updateProductService = async (id, data) => {
   const product = await Product.findByIdAndUpdate(id, data, {
     new: true,
     runValidators: true,
-  }).populate('category', 'name slug');
+  });
   if (!product) throw new Error('Product not found');
   return product;
 };
@@ -77,5 +80,5 @@ export const deleteProductService = async (id) => {
 
 // Get total products in stock — used by AdminDashboard stat card
 export const getProductsInStockCountService = async () => {
-  return Product.countDocuments({ stockStatus: { $ne: 'out_of_stock' } });
+  return Product.countDocuments({ stock: { $gt: 0 } });
 };
