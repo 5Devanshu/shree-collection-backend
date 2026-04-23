@@ -5,6 +5,8 @@ export const getAllProductsService = async ({ page = 1, limit = 20, category, st
   const filter = {};
   if (category)    filter.category = category;
   if (stockStatus) filter.stockStatus = stockStatus;
+  // For public API (no specific stockStatus filter), exclude out-of-stock products
+  else filter.stockStatus = { $ne: 'out_of_stock' };
 
   const skip = (page - 1) * limit;
 
@@ -29,7 +31,7 @@ export const getFeaturedProductsService = async () => {
 
 // Get products by category slug — used by CategoryPage (/collections/:category)
 export const getProductsByCategoryService = async (slug) => {
-  return Product.find()
+  return Product.find({ stockStatus: { $ne: 'out_of_stock' } })
     .populate({
       path: 'category',
       match: { slug },

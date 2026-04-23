@@ -21,6 +21,12 @@ const productSchema = new mongoose.Schema(
       required: [true, 'Price is required'],
       min: 0,
     },
+    stock: {
+      type: Number,
+      required: [true, 'Stock quantity is required'],
+      default: 0,
+      min: 0,
+    },
     image: {
       url: { type: String, required: true },
       publicId: { type: String },       // for Cloudinary deletion
@@ -53,6 +59,18 @@ const productSchema = new mongoose.Schema(
 
 // Text index for search module
 productSchema.index({ title: 'text', material: 'text', description: 'text' });
+
+// ── Pre-save hook: Auto-calculate stockStatus based on stock quantity ──────
+productSchema.pre('save', function (next) {
+  if (this.stock === 0) {
+    this.stockStatus = 'out_of_stock';
+  } else if (this.stock > 0 && this.stock <= 5) {
+    this.stockStatus = 'low_stock';
+  } else {
+    this.stockStatus = 'in_stock';
+  }
+  next();
+});
 
 const Product = mongoose.model('Product', productSchema);
 export default Product;
