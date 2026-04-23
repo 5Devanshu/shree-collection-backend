@@ -28,6 +28,9 @@ import './modules/order/order.model.js';
 import './modules/discount/discount.model.js';
 import './models/Customer.js';
 
+// Import Product model for index cleanup
+import Product from './modules/product/product.model.js';
+
 dotenv.config();
 
 connectDB();
@@ -68,6 +71,21 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/', (req, res) => {
   res.json({ message: 'Shree Collection API is running' });
 });
+
+// ── Cleanup bad indexes on startup ────────────────────────────────────────────
+(async () => {
+  try {
+    // Remove old/bad productCode index if it exists
+    const indexes = await Product.collection.getIndexes();
+    if (indexes['productCode_1']) {
+      await Product.collection.dropIndex('productCode_1');
+      console.log('✓ Removed bad productCode_1 index from products collection');
+    }
+  } catch (err) {
+    // Index doesn't exist or already removed - that's fine
+    console.log('ℹ productCode_1 index not found (already cleaned or never existed)');
+  }
+})();
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
