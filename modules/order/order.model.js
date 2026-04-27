@@ -42,12 +42,30 @@ const orderSchema = new mongoose.Schema(
       unique: true,
     },
 
-    // Contact Information — Checkout.jsx form field
+    // Contact Information — Checkout.jsx form field or guest checkout
     email: {
       type: String,
       required: [true, 'Customer email is required'],
       lowercase: true,
       trim: true,
+    },
+
+    // Guest checkout fields — captures important details without login
+    phone: {
+      type: String,
+      default: null,
+    },
+    firstName: {
+      type: String,
+      default: null,
+    },
+    lastName: {
+      type: String,
+      default: null,
+    },
+    isGuestOrder: {
+      type: Boolean,
+      default: false,
     },
 
     // Shipping Address — Checkout.jsx Shipping section
@@ -78,15 +96,22 @@ const orderSchema = new mongoose.Schema(
     // Payment — Checkout.jsx Payment section
     paymentStatus: {
       type: String,
-      enum: ['unpaid', 'paid', 'refunded'],
+      enum: ['unpaid', 'paid', 'refunded', 'failed'],
       default: 'unpaid',
     },
     paymentMethod: {
       type: String,
+      enum: ['card', 'phonepe', 'razorpay', 'cashfree', 'demo'],
       default: 'card',
     },
     paymentReference: {
       type: String,   // payment gateway transaction ID
+      default: null,
+    },
+
+    // PhonePe specific fields
+    merchantTransactionId: {
+      type: String,
       default: null,
     },
   },
