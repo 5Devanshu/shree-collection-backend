@@ -1,5 +1,6 @@
 import Order from './order.model.js';
 import { Parser } from 'json2csv';
+import { sendOrderConfirmationEmail } from '../../config/mailer.js';
 
 // Create a new order on checkout form submission
 // Maps to Checkout.jsx "Complete Order" button
@@ -10,6 +11,23 @@ export const createOrderService = async (data) => {
   const total    = subtotal + shippingCost;
 
   const order = await Order.create({ ...data, subtotal, total });
+  
+  // ── Send confirmation email to customer ──────────────────────────────────
+  try {
+    const customerName = `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`;
+    await sendOrderConfirmationEmail({
+      to: order.email,
+      customerName,
+      orderId: order.orderNumber,
+      items: order.items,
+      total: order.total,
+    });
+    console.log(`✓ Confirmation email sent to ${order.email}`);
+  } catch (emailError) {
+    console.error(`✗ Email failed for ${order.email}:`, emailError.message);
+    // Don't fail order creation if email fails - order is still valid
+  }
+  
   return order;
 };
 
