@@ -86,10 +86,10 @@ const orderSchema = new mongoose.Schema(
     shippingCost:  { type: Number, default: 0 },   // Complimentary for Shree
     total:         { type: Number, required: true },
 
-    // Status — drives AdminOrders status badges: Pending / Shipped / Delivered
+    // Status — drives AdminOrders status badges: Pending / Confirmed / Shipped / Delivered / Cancelled
     status: {
       type: String,
-      enum: ['pending', 'shipped', 'delivered', 'cancelled'],
+      enum: ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'],
       default: 'pending',
     },
 
@@ -102,10 +102,14 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       enum: ['card', 'phonepe', 'razorpay', 'cashfree', 'demo'],
-      default: 'card',
+      default: 'phonepe',
     },
     paymentReference: {
       type: String,   // payment gateway transaction ID
+      default: null,
+    },
+    paidAt: {
+      type: Date,
       default: null,
     },
 

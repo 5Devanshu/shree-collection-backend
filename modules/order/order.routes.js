@@ -9,6 +9,9 @@ import {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
+  initiatePayment,
+  paymentCallback,
+  verifyPayment,
 } from './order.controller.js';
 import protect from '../auth/auth.middleware.js';
 
@@ -17,6 +20,16 @@ const router = express.Router();
 // ─── Public Routes ───────────────────────────────────────────────
 // Checkout.jsx "Complete Order" button
 router.post('/', createOrder);
+
+// ─── Payment Routes ──────────────────────────────────────────────
+// Initiate PhonePe payment (frontend after order creation)
+router.post('/:id/payment/initiate', initiatePayment);
+
+// PhonePe webhook callback (payment gateway → backend)
+router.post('/payment/callback', paymentCallback);
+
+// Verify payment status (frontend polling or direct check)
+router.get('/:id/payment/verify', verifyPayment);
 
 // ─── Admin Protected Routes ──────────────────────────────────────
 // AdminDashboard — Total Revenue + Total Orders stat cards

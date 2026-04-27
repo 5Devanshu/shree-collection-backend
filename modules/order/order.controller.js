@@ -1,4 +1,6 @@
 import * as orderService from './order.service.js';
+import { initializePhonePePayment, checkPhonePeTransactionStatus } from '../../config/phonepe.js';
+import Order from './order.model.js';
 
 // POST /api/orders
 export const createOrder = async (req, res) => {
@@ -97,5 +99,147 @@ export const createDemoOrder = async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/orders/:id/payment/initiate [Public - Payment Gateway Redirect]
+export const initiatePayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    // Fetch order from database
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check if already paid
+    if (order.paymentStatus === 'paid') {
+      return res.status(400).json({ success: false, message: 'Order already paid' });
+    }
+
+    // Prepare PhonePe payment data
+    const paymentData = {
+      amount: order.total,
+      orderId: order.orderNumber,
+      customerName: `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`,
+      customerEmail: order.email,
+      customerPhone: order.phone,
+      redirectUrl: `${process.env.FRONTEND_URL}/payment/success?orderId=${order.orderNumber}`,
+      callbackUrl: `${process.env.BACKEND_URL}/api/orders/payment/callback`,
+    };
+
+    // Initialize PhonePe payment
+    const phonePeResponse = await initializePhonePePayment(paymentData);
+
+    if (phonePeResponse.success) {
+      // Return redirect URL to frontend
+      res.status(200).json({
+        success: true,
+        data: {
+          orderId: order.orderNumber,
+          paymentUrl: phonePeResponse.data.instrumentResponse.redirectUrl,
+          transactionId: phonePeResponse.data.transactionId,
+        },
+      });
+    } else {
+      throw new Error(phonePeResponse.message || 'Failed to initiate payment');
+    }
+  } catch (error) {
+    console.error('Payment Initiation Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to initiate payment' 
+    });
+  }
+};
+
+// POST /api/orders/payment/callback [PhonePe Webhook]
+export const paymentCallback = async (req, res) => {
+  try {
+    const { merchantTransactionId, status } = req.body;
+
+    if (!merchantTransactionId) {
+      return res.status(400).json({ success: false, message: 'Missing transaction ID' });
+    }
+
+    // Find order by orderNumber
+    const order = await Order.findOne({ orderNumber: merchantTransactionId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Update order status based on payment status
+    if (status === 'SUCCESS' || status === 'COMPLETED') {
+      order.paymentStatus = 'paid';
+      order.status = 'confirmed';
+      order.paidAt = new Date();
+    } else if (status === 'FAILED') {
+      order.paymentStatus = 'failed';
+      order.status = 'cancelled';
+    } else {
+      order.paymentStatus = 'pending';
+    }
+
+    await order.save();
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Payment callback processed',
+      data: { orderId: order.orderNumber, status: order.status }
+    });
+  } catch (error) {
+    console.error('Payment Callback Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Callback processing failed' 
+    });
+  }
+};
+
+// GET /api/orders/:id/payment/verify [Public - Verify Payment Status]
+export const verifyPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    // Find order by orderNumber
+    const order = await Order.findOne({ orderNumber: orderId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check PhonePe transaction status
+    try {
+      const transactionStatus = await checkPhonePeTransactionStatus(orderId);
+
+      if (transactionStatus.success) {
+        // Update order if payment is confirmed
+        if (transactionStatus.data.state === 'COMPLETED') {
+          order.paymentStatus = 'paid';
+          order.status = 'confirmed';
+          order.paidAt = new Date();
+          await order.save();
+        }
+      }
+    } catch (phonePeError) {
+      console.warn('PhonePe verification fallback:', phonePeError.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        orderId: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        total: order.total,
+        email: order.email,
+      },
+    });
+  } catch (error) {
+    console.error('Payment Verification Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Verification failed' 
+    });
   }
 };
