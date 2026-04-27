@@ -17,21 +17,13 @@ import protect from '../auth/auth.middleware.js';
 
 const router = express.Router();
 
-// ─── Public Routes ───────────────────────────────────────────────
-// Checkout.jsx "Complete Order" button
-router.post('/', createOrder);
-
 // ─── Payment Routes ──────────────────────────────────────────────
-// Initiate PhonePe payment (frontend after order creation)
-router.post('/:id/payment/initiate', initiatePayment);
-
+// ⚠️ MUST BE BEFORE /:id routes to avoid route matching conflicts
 // PhonePe webhook callback (payment gateway → backend)
 router.post('/payment/callback', paymentCallback);
 
-// Verify payment status (frontend polling or direct check)
-router.get('/:id/payment/verify', verifyPayment);
-
 // ─── Admin Protected Routes ──────────────────────────────────────
+// ⚠️ MUST BE BEFORE /:id routes to avoid route matching conflicts
 // AdminDashboard — Total Revenue + Total Orders stat cards
 router.get('/stats',   protect, getOrderStats);
 
@@ -43,6 +35,18 @@ router.get('/export',  protect, exportOrdersCSV);
 
 // Guest checkout demo endpoint (must be before /:id routes)
 router.post('/demo', createDemoOrder);
+
+// ─── Public Routes ───────────────────────────────────────────────
+// Checkout.jsx "Complete Order" button
+router.post('/', createOrder);
+
+// ─── Dynamic ID Routes ───────────────────────────────────────────
+// ⚠️ MUST BE AFTER specific routes like /stats, /recent, /demo, /payment/callback
+// Initiate PhonePe payment (frontend after order creation)
+router.post('/:id/payment/initiate', initiatePayment);
+
+// Verify payment status (frontend polling or direct check)
+router.get('/:id/payment/verify', verifyPayment);
 
 // AdminOrders — full paginated table with status filter
 router.get('/',        protect, getAllOrders);
