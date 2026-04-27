@@ -81,3 +81,21 @@ export const deleteOrder = async (req, res) => {
     res.status(404).json({ success: false, message: error.message });
   }
 };
+
+// POST /api/orders/demo  [Public - Guest Checkout Demo]
+export const createDemoOrder = async (req, res) => {
+  try {
+    const order = await orderService.createOrderService(req.body);
+    res.status(201).json({ 
+      success: true, 
+      data: {
+        orderId: order.orderNumber,
+        orderNumber: order.orderNumber,
+        email: order.email,
+        total: order.total,
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};

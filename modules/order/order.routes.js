@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   createOrder,
+  createDemoOrder,
   getAllOrders,
   getRecentOrders,
   getOrderStats,
@@ -16,6 +17,9 @@ const router = express.Router();
 // ─── Public Routes ───────────────────────────────────────────────
 // Checkout.jsx "Complete Order" button
 router.post('/', createOrder);
+
+// Guest checkout demo endpoint
+router.post('/demo', createDemoOrder);
 
 // ─── Admin Protected Routes ──────────────────────────────────────
 // AdminDashboard — Total Revenue + Total Orders stat cards
