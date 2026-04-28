@@ -1,5 +1,15 @@
 import * as authService from './auth.service.js';
 
+// POST /api/auth/register (first admin only)
+export const registerAdmin = async (req, res) => {
+  try {
+    const result = await authService.registerAdminService(req.body);
+    res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 // POST /api/auth/login
 export const loginAdmin = async (req, res) => {
   try {

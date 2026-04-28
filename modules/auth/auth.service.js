@@ -8,6 +8,40 @@ export const generateToken = (id) => {
   });
 };
 
+// Register first admin (only if no admins exist)
+export const registerAdminService = async ({ name, email, password }) => {
+  if (!name || !email || !password) {
+    throw new Error('Name, email, and password are required');
+  }
+
+  // Check if any admin exists
+  const existingAdmin = await Admin.findOne({});
+  if (existingAdmin) {
+    throw new Error('Admin already exists. Cannot register another admin.');
+  }
+
+  // Check if email is already used
+  const emailExists = await Admin.findOne({ email });
+  if (emailExists) {
+    throw new Error('Email already registered');
+  }
+
+  // Create new admin
+  const admin = await Admin.create({ name, email, password, role: 'superadmin' });
+
+  const token = generateToken(admin._id);
+
+  return {
+    token,
+    admin: {
+      id: admin._id,
+      name: admin.name,
+      email: admin.email,
+      role: admin.role,
+    },
+  };
+};
+
 // Login: validate credentials and return token
 export const loginService = async ({ email, password }) => {
   if (!email || !password) {
