@@ -48,8 +48,24 @@ export const loginService = async ({ email, password }) => {
     throw new Error('Email and password are required');
   }
 
-  const admin = await Admin.findOne({ email }).select('+password');
-  if (!admin || !(await admin.comparePassword(password))) {
+  // Normalize email
+  const normalizedEmail = email.toLowerCase().trim();
+  
+  console.log('🔍 Login attempt:', { email: normalizedEmail, passwordLength: password?.length });
+  
+  const admin = await Admin.findOne({ email: normalizedEmail }).select('+password');
+  console.log('👤 Admin found?', !!admin, admin?.email);
+  
+  if (!admin) {
+    console.log('❌ No admin found with email:', normalizedEmail);
+    throw new Error('Invalid email or password');
+  }
+  
+  const isPasswordValid = await admin.comparePassword(password);
+  console.log('🔐 Password valid?', isPasswordValid);
+  
+  if (!isPasswordValid) {
+    console.log('❌ Password mismatch for admin:', admin.email);
     throw new Error('Invalid email or password');
   }
 
