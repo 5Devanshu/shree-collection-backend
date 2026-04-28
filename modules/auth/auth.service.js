@@ -50,18 +50,8 @@ export const loginService = async ({ email, password }) => {
 
   // Normalize email
   const normalizedEmail = email.toLowerCase().trim();
-  console.log('🔍 Login attempt:', { email: normalizedEmail });
 
   const admin = await Admin.findOne({ email: normalizedEmail }).select('+password');
-  console.log('👤 Admin found:', !!admin);
-  
-  if (admin) {
-    console.log('🔐 Password in DB (first 20 chars):', admin.password?.substring(0, 20));
-    console.log('🔐 Incoming password:', password);
-    const isMatch = await admin.comparePassword(password);
-    console.log('✅ Password match result:', isMatch);
-  }
-
   if (!admin || !(await admin.comparePassword(password))) {
     throw new Error('Invalid email or password');
   }
