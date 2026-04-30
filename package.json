@@ -16,7 +16,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@phonepe-pg/pg-sdk-node": "^2.0.5",
+    "@phonepe-pg/pg-sdk-node": "^2.0.6",
     "axios": "^1.14.0",
     "bcryptjs": "^2.4.3",
     "cashfree-pg": "^5.1.0",
