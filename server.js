@@ -86,6 +86,16 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Add CORS middleware to allow x-session-id header and handle preflight requests
+app.use((req, res, next) => {
+	res.setHeader('Access-Control-Allow-Origin', 'https://shreecollection.co.in');
+	res.setHeader('Access-Control-Allow-Credentials', 'true');
+	res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-session-id');
+	res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+	if (req.method === 'OPTIONS') return res.sendStatus(204);
+	next();
+});
+
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({ message: 'Shree Collection API is running', timestamp: new Date().toISOString() });
