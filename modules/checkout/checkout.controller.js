@@ -4,7 +4,7 @@ import {
   createPaymentOrderService,
   checkOrderStatusService,
   confirmOrderService,
-  sendOrderConfirmationService,
+  sendOrderConfirmation,
   validateWebhookService,
 } from './checkout.service.js';
 import {
@@ -101,12 +101,7 @@ export const confirmCheckout = async (req, res) => {
     });
 
     // Step 6 — Send confirmation email
-    await sendOrderConfirmationService({
-      email,
-      orderNumber: order.orderNumber,
-      total,
-      items:       validatedItems,
-    });
+    await sendOrderConfirmation(order, email, shippingAddress.name || email);
 
     res.status(201).json({ success: true, order });
   } catch (error) {

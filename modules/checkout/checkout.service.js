@@ -162,7 +162,7 @@ export const confirmOrderService = async ({
 
 // ─── Step 6: Send Order Confirmation Email ────────────────────────────────────
 // Reuses your existing email.service.js — no changes needed there
-export { sendOrderConfirmationService } from '../../services/email.service.js';
+export { sendOrderConfirmation } from '../../services/email.service.js';
 
 // ─── Webhook: Validate PhonePe Callback ──────────────────────────────────────
 // PhonePe sends a server-to-server POST to /api/checkout/webhook
