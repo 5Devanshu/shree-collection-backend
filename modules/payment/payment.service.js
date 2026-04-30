@@ -2,7 +2,7 @@ import { StandardCheckoutClient, Env, StandardCheckoutPayRequest, MetaInfo } fro
 import { randomUUID } from 'crypto';
 import Order   from '../order/order.model.js';
 import Product from '../product/product.model.js';
-import { sendOrderConfirmationEmail } from '../../services/email.service.js';
+import { sendOrderConfirmation, sendPaymentConfirmation } from '../../services/email.service.js';
 
 // ── PhonePe SDK singleton ─────────────────────────────────────────────────────
 let _client = null;
@@ -191,6 +191,7 @@ export const markPaymentAsFailedService = async (merchantTransactionId) => {
 
 // ── SEND CONFIRMATION EMAIL ───────────────────────────────────────────────────
 // Called by: POST /api/payment/phonepe/confirm (after order created)
+// ── SEND CONFIRMATION EMAIL ───────────────────────────────────────────────────
 export const sendOrderConfirmationEmailService = async ({
   guestEmail,
   guestName,
@@ -199,15 +200,32 @@ export const sendOrderConfirmationEmailService = async ({
   items,
 }) => {
   try {
-    await sendOrderConfirmationEmail({
-      email:       guestEmail,
-      name:        guestName,
-      orderNumber,
-      total,
-      items,
-    });
+    // ✅ Matches email.service.js: sendOrderConfirmation(order, email, name)
+    await sendOrderConfirmation(
+      {
+        _id:         orderNumber,
+        orderNumber,
+        orderStatus: 'Pending',
+        items:       items.map(i => ({
+          title:     i.title,
+          productId: i.product || i.productId,
+          qty:       i.quantity,
+          price:     i.price,
+        })),
+        subtotal,
+        shippingCost: 0,
+        total,
+        createdAt:    new Date(),
+        customer: {
+          name:    guestName,
+          phone:   '',
+          address: { line1: '', line2: '', city: '', state: '', pincode: '' },
+        },
+      },
+      guestEmail,
+      guestName
+    );
   } catch (err) {
-    // Non-blocking — log but don't fail the order
-    console.error('Order confirmation email failed:', err.message);
+    console.error('Order confirmation email failed (non-blocking):', err.message);
   }
 };
