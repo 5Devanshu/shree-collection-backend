@@ -137,6 +137,7 @@ export const checkPhonePeStatusService = async (merchantTransactionId) => {
 
 // ── CREATE GUEST ORDER IN DB ──────────────────────────────────────────────────
 // Called by: POST /api/payment/phonepe/confirm (after payment verified)
+// ── CREATE GUEST ORDER IN DB ──────────────────────────────────────────────────
 export const createGuestOrderService = async ({
   merchantTransactionId,
   transactionId,
@@ -157,13 +158,23 @@ export const createGuestOrderService = async ({
     shippingAddress: {
       firstName:    nameParts[0] || guestName,
       lastName:     nameParts.slice(1).join(' ') || '',
-      addressLine1: guestAddress?.line1   || guestAddress?.addressLine1 || '',
-      addressLine2: guestAddress?.line2   || guestAddress?.addressLine2 || '',
-      city:         guestAddress?.city    || '',
-      postalCode:   guestAddress?.pincode || guestAddress?.postalCode   || '',
+      addressLine1: guestAddress?.line1        || guestAddress?.addressLine1 || '',
+      addressLine2: guestAddress?.line2        || guestAddress?.addressLine2 || '',
+      city:         guestAddress?.city         || '',
+      postalCode:   guestAddress?.pincode      || guestAddress?.postalCode   || '',
       country:      'India',
     },
-    items,
+
+    // ✅ Map productId → product so Mongoose validation passes
+    items: items.map(i => ({
+      product:  i.product  || i.productId,   // ← handles both field names
+      title:    i.title    || 'Product',
+      material: i.material || '',
+      price:    i.price    || 0,
+      quantity: i.quantity || 1,
+      image:    i.image    || '',
+    })),
+
     subtotal:         subtotal     || 0,
     shippingCost:     shippingCost || 0,
     total:            total        || 0,
