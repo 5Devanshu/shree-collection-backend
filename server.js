@@ -45,14 +45,31 @@ app.use(morgan('dev'));
 const allowedOrigins = [
   process.env.CLIENT_URL,
   'https://shreecollection.co.in',
+  'https://www.shreecollection.co.in',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean);
 
+const normalizeOrigin = (value) => {
+  if (!value) return '';
+
+  try {
+    const url = new URL(value);
+    const isDefaultHttpPort = url.protocol === 'http:' && url.port === '80';
+    const isDefaultHttpsPort = url.protocol === 'https:' && url.port === '443';
+
+    return `${url.protocol}//${url.hostname}${isDefaultHttpPort || isDefaultHttpsPort || !url.port ? '' : `:${url.port}`}`;
+  } catch {
+    return value.trim().replace(/\/$/, '');
+  }
+};
+
+const normalizedAllowedOrigins = new Set(allowedOrigins.map(normalizeOrigin));
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || normalizedAllowedOrigins.has(normalizeOrigin(origin))) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -65,6 +82,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
