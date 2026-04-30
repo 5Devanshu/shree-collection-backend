@@ -2,7 +2,7 @@ import {
   StandardCheckoutClient,
   Env,
   StandardCheckoutPayRequest,
-} from 'phonepe-pg';
+} from '@phonepe-pg/pg-sdk-node';
 import crypto from 'crypto';
 import Order   from '../order/order.model.js';
 import Product from '../product/product.model.js';

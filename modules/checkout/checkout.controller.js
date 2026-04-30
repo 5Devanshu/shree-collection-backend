@@ -10,7 +10,7 @@ import {
 import {
   StandardCheckoutClient,
   Env,
-} from 'phonepe-pg';
+} from '@phonepe-pg/pg-sdk-node';
 
 // Helper — get the singleton PhonePe client (same instance as service)
 const getClient = () => {
