@@ -1,20 +1,33 @@
-import Razorpay from 'razorpay';
+import {
+  StandardCheckoutClient,
+  Env,
+  StandardCheckoutPayRequest,
+} from 'phonepe-pg';
 import crypto from 'crypto';
-import Order from '../order/order.model.js';
+import Order   from '../order/order.model.js';
 import Product from '../product/product.model.js';
 
-// Razorpay instance — initialised from .env (only if credentials are provided)
-let razorpay;
-if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_ID !== 'your_razorpay_key_id') {
-  razorpay = new Razorpay({
-    key_id:     process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-  });
-}
+// ─── PhonePe Client (singleton) ───────────────────────────────────────────────
+// StandardCheckoutClient throws PhonePeException if instantiated more than once
+let phonePeClient;
+
+const getPhonePeClient = () => {
+  if (!phonePeClient) {
+    const env = process.env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
+
+    phonePeClient = StandardCheckoutClient.getInstance(
+      process.env.PHONEPE_CLIENT_ID,
+      process.env.PHONEPE_CLIENT_SECRET,
+      Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
+      env
+    );
+  }
+  return phonePeClient;
+};
 
 // ─── Step 1: Validate Cart ────────────────────────────────────────────────────
-// Validates each item sent from the Checkout Order Summary panel.
-// Checks product exists, is not out of stock, and price has not been tampered.
+// Server-side validation of every cart item sent from Checkout.jsx
+// Checks: product exists, not out of stock, price not tampered
 export const validateCartService = async (items) => {
   if (!items || items.length === 0) {
     throw new Error('Cart is empty');
@@ -33,9 +46,11 @@ export const validateCartService = async (items) => {
       throw new Error(`"${product.title}" is currently out of stock`);
     }
 
-    // Server-side price verification — prevents frontend price tampering
+    // Prevents frontend price tampering
     if (product.price !== item.price) {
-      throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
+      throw new Error(
+        `Price mismatch for "${product.title}". Please refresh and try again.`
+      );
     }
 
     validated.push({
@@ -52,52 +67,73 @@ export const validateCartService = async (items) => {
 };
 
 // ─── Step 2: Calculate Totals ─────────────────────────────────────────────────
-// Maps to Checkout.jsx Order Summary:
-// Subtotal row, Shipping row ("Complimentary"), Total row
+// Maps to Checkout.jsx Order Summary: Subtotal, Shipping, Total rows
 export const calculateTotalsService = (validatedItems) => {
-  const subtotal    = validatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const shippingCost = 0;          // "Complimentary Express Shipping" as shown in frontend
+  const subtotal     = validatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const shippingCost = 0;   // Complimentary Express Shipping
   const total        = subtotal + shippingCost;
   return { subtotal, shippingCost, total };
 };
 
-// ─── Step 3: Create Razorpay Payment Order ────────────────────────────────────
-// Creates a Razorpay order for the amount.
-// Frontend will use the returned order_id to open the Razorpay payment modal.
-// Maps to Checkout.jsx Payment section (Card Number, Expiry, Security Code).
-export const createPaymentOrderService = async (total) => {
-  const options = {
-    amount:   Math.round(total * 100),   // Razorpay requires amount in paise
-    currency: 'INR',
-    receipt:  `receipt_${Date.now()}`,
-    payment_capture: 1,                  // auto-capture on successful payment
+// ─── Step 3: Create PhonePe Payment Order ────────────────────────────────────
+// Builds a StandardCheckoutPayRequest and calls client.pay()
+// Returns: { checkoutUrl, merchantOrderId }
+// The checkoutUrl is loaded in the iframe on your frontend
+export const createPaymentOrderService = async (total, email) => {
+  const client = getPhonePeClient();
+
+  // Unique merchant order ID for this transaction
+  const merchantOrderId = `SC_${Date.now()}_${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+
+  // Amount in paise (PhonePe requires integer paise, same as Razorpay)
+  const amountInPaise = Math.round(total * 100);
+
+  // Redirect URL — PhonePe will send the customer here after payment
+  const redirectUrl = `${process.env.FRONTEND_URL}/checkout/callback?merchantOrderId=${merchantOrderId}`;
+
+  const request = StandardCheckoutPayRequest.builder()
+    .merchantOrderId(merchantOrderId)
+    .amount(amountInPaise)
+    .redirectUrl(redirectUrl)
+    // Optional: pass expiry (seconds), default is 20 minutes
+    // .expireAfter(1200)
+    // Optional: pass user-defined fields received back in webhook/status
+    .metaInfo({
+      udf1: email,
+      udf2: 'shree-collection',
+    })
+    .build();
+
+  const response = await client.pay(request);
+
+  // response.redirectUrl  → PhonePe hosted checkout page URL (use in iframe)
+  // response.orderId      → PhonePe internal order id (for reference)
+  return {
+    checkoutUrl:     response.redirectUrl,
+    merchantOrderId,
+    phonePeOrderId:  response.orderId,
   };
-
-  const paymentOrder = await razorpay.orders.create(options);
-  return paymentOrder;
 };
 
-// ─── Step 4: Verify Payment Signature ────────────────────────────────────────
-// Verifies the Razorpay payment signature after the user completes payment.
-// This is critical — prevents fake/forged payment confirmations reaching backend.
-export const verifyPaymentSignatureService = ({ razorpayOrderId, razorpayPaymentId, razorpaySignature }) => {
-  const body      = `${razorpayOrderId}|${razorpayPaymentId}`;
-  const expected  = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-    .update(body)
-    .digest('hex');
+// ─── Step 4: Check Order Payment Status ──────────────────────────────────────
+// Use this to manually verify payment when webhook is missed or as a fallback
+// Always rely on payload.state (root-level) for the final status
+export const checkOrderStatusService = async (merchantOrderId) => {
+  const client   = getPhonePeClient();
+  const response = await client.getOrderStatus(merchantOrderId);
 
-  if (expected !== razorpaySignature) {
-    throw new Error('Payment verification failed. Invalid signature.');
-  }
-
-  return true;
+  // response.state: COMPLETED | FAILED | PENDING
+  return {
+    state:           response.state,
+    merchantOrderId: response.merchantOrderId,
+    amount:          response.amount,          // in paise
+    paymentDetails:  response.paymentDetails,  // array of payment attempt details
+  };
 };
 
-// ─── Step 5: Confirm & Place Order ───────────────────────────────────────────
-// After payment is verified, creates the final Order record in the database.
-// Maps to Checkout.jsx "Complete Order" button → onSubmit flow.
-// Combines: Contact Information + Shipping Address + validated items + payment ref.
+// ─── Step 5: Confirm & Place Order in DB ─────────────────────────────────────
+// Called after PhonePe confirms payment (via webhook or status poll)
+// Creates the Order document in MongoDB — same schema as your existing orders
 export const confirmOrderService = async ({
   email,
   shippingAddress,
@@ -105,8 +141,8 @@ export const confirmOrderService = async ({
   subtotal,
   shippingCost,
   total,
-  razorpayOrderId,
-  razorpayPaymentId,
+  merchantOrderId,
+  phonePeTransactionId,
 }) => {
   const order = await Order.create({
     email,
@@ -116,8 +152,8 @@ export const confirmOrderService = async ({
     shippingCost,
     total,
     paymentStatus:    'paid',
-    paymentMethod:    'card',
-    paymentReference: razorpayPaymentId,
+    paymentMethod:    'phonepe',
+    paymentReference: phonePeTransactionId || merchantOrderId,
     status:           'pending',
   });
 
@@ -125,37 +161,13 @@ export const confirmOrderService = async ({
 };
 
 // ─── Step 6: Send Order Confirmation Email ────────────────────────────────────
-// Sends a confirmation email to the customer after successful order placement.
-// Maps to Checkout.jsx Contact Information → email field.
-export const sendOrderConfirmationService = async ({ email, orderNumber, total, items }) => {
-  const nodemailer  = await import('nodemailer');
+// Reuses your existing email.service.js — no changes needed there
+export { sendOrderConfirmationService } from '../../services/email.service.js';
 
-  const transporter = nodemailer.default.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  const itemList = items
-    .map((i) => `<li>${i.title} × ${i.quantity} — ₹${(i.price * i.quantity).toLocaleString()}</li>`)
-    .join('');
-
-  await transporter.sendMail({
-    from:    `"Shree Jewels" <${process.env.EMAIL_USER}>`,
-    to:      email,
-    subject: `Your Shree Order ${orderNumber} is Confirmed ✨`,
-    html: `
-      <h2>Thank you for your order, ${orderNumber}</h2>
-      <p>Your order has been placed successfully and is being prepared with care.</p>
-      <h3>Order Summary</h3>
-      <ul>${itemList}</ul>
-      <p><strong>Total Paid: ₹${total.toLocaleString()}</strong></p>
-      <p>Shipping: Complimentary Express Shipping</p>
-      <p>Returns: 30-day graceful returns</p>
-      <br/>
-      <p>— The Shree Team</p>
-    `,
-  });
+// ─── Webhook: Validate PhonePe Callback ──────────────────────────────────────
+// PhonePe sends a server-to-server POST to /api/checkout/webhook
+// Use validateCallback() to verify authenticity before processing
+export const validateWebhookService = (client, username, password, authHeader, body) => {
+  // Returns a CallbackResponse with: event, state, merchantOrderId, paymentDetails
+  return client.validateCallback(username, password, authHeader, body);
 };

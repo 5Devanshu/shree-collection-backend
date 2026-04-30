@@ -3,26 +3,25 @@ import {
   initiateCheckout,
   confirmCheckout,
   handleWebhook,
+  getPaymentStatus,
 } from './checkout.controller.js';
 
 const router = express.Router();
 
-// ─── Public Routes ────────────────────────────────────────────────────────────
-
-// Step 1 — Validate cart + create Razorpay order
-// Triggered by: Checkout.jsx "Complete Order" button onSubmit
+// ─── POST /api/checkout/initiate ──────────────────────────────────────────────
+// Validates cart → creates PhonePe order → returns checkout URL for iframe
 router.post('/initiate', initiateCheckout);
 
-// Step 2 — Verify payment + place order + send email
-// Triggered by: Razorpay modal success callback on frontend
+// ─── POST /api/checkout/confirm ───────────────────────────────────────────────
+// Called by frontend after PhonePe redirects back — verifies & places order
 router.post('/confirm', confirmCheckout);
 
-// Step 3 — Razorpay webhook (payment.failed / payment.captured events)
-// Raw body required for signature verification
-router.post(
-  '/webhook',
-  express.raw({ type: 'application/json' }),
-  handleWebhook
-);
+// ─── GET /api/checkout/status/:merchantOrderId ────────────────────────────────
+// Fallback — poll order payment status if webhook missed
+router.get('/status/:merchantOrderId', getPaymentStatus);
+
+// ─── POST /api/checkout/webhook ───────────────────────────────────────────────
+// PhonePe server-to-server callback (checkout.order.completed / failed)
+router.post('/webhook', handleWebhook);
 
 export default router;
