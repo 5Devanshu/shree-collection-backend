@@ -8,6 +8,7 @@ import notFound from './middlewares/notFound.js';
 
 // Import routes
 import authRoutes from './modules/auth/auth.routes.js';
+import customerAuthRoutes from './modules/customer-auth/customer-auth.routes.js';
 import categoryRoutes from './modules/category/category.routes.js';
 import productRoutes from './modules/product/product.routes.js';
 import orderRoutes from './modules/order/order.routes.js';
@@ -23,6 +24,7 @@ import paymentRoutes from './modules/payment/payment.routes.js';
 
 // Load models
 import './modules/auth/auth.model.js';
+import './modules/customer-auth/customer-auth.model.js';
 import './modules/category/category.model.js';
 import './modules/product/product.model.js';
 import './modules/order/order.model.js';
@@ -108,6 +110,7 @@ app.get('/', (req, res) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/customer-auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
