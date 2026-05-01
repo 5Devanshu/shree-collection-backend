@@ -266,20 +266,34 @@ export const deleteAddress = async (req, res, next) => {
 // GET /api/customers/orders
 export const getMyOrders = async (req, res, next) => {
   try {
-    const customer = req.customer;
+    const { status, page = 1, limit = 10 } = req.query;
 
-    // ✅ Find orders by customer ID OR by matching email
-    // This covers both: linked orders (future) and guest orders (current)
-    const orders = await Order.find({
+    // ✅ Find by customerId OR by email — covers both linked and guest orders
+    const filter = {
       $or: [
-        { customerId: customer._id },
-        { email:      customer.email },
+        { customerId: req.customer._id },
+        { email:      req.customer.email },
       ],
-    })
-      .sort({ createdAt: -1 })
-      .populate('items.product', 'title image material');
+    };
+    if (status) filter.status = status;
 
-    res.status(200).json({ success: true, data: orders });
+    const pageNum  = Math.max(1, parseInt(page,  10));
+    const limitNum = Math.min(20, parseInt(limit, 10));
+    const skip     = (pageNum - 1) * limitNum;
+
+    const [orders, total] = await Promise.all([
+      Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Order.countDocuments(filter),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      count:      orders.length,
+      total,
+      page:       pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      data:       orders,
+    });
   } catch (err) {
     next(err);
   }
