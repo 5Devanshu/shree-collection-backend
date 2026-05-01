@@ -2,176 +2,95 @@ import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema(
   {
-    // Primary product info
     title: {
-      type: String,
+      type:     String,
       required: [true, 'Product title is required'],
-      trim: true,
-    },
-    name: {
-      type: String,
-      trim: true,
-      default: '',  // Alias for title
+      trim:     true,
     },
     description: {
-      type: String,
+      type:     String,
       required: [true, 'Product description is required'],
     },
     material: {
-      type: String,
+      type:     String,
       required: [true, 'Material is required'],
-      trim: true,
+      trim:     true,
     },
     price: {
-      type: Number,
+      type:     Number,
       required: [true, 'Price is required'],
-      min: 0,
+      min:      0,
     },
-    stock: {
-      type: Number,
-      required: [true, 'Stock quantity is required'],
-      default: 0,
-      min: 0,
-    },
-    
-    // Image - supports both object and string format
     image: {
-      url: { type: String, default: '' },
-      publicId: { type: String, default: '' },  // for Cloudinary deletion
+      url:      { type: String, required: true },
+      publicId: { type: String, default: '' },
     },
-    mainImage: {
-      type: String,
-      default: '',  // Alias for image.url
-    },
-    
-    // Category - supports both reference and slug
     category: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Category',
-      default: null,
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      'Category',
+      required: [true, 'Category is required'],
     },
-    categorySlug: {
-      type: String,
-      lowercase: true,
-      trim: true,
-      default: '',
+
+    // ── Stock count — set by admin ────────────────────────────────────────────
+    // stockStatus is auto-derived by pre-save hook — never set manually
+    stock: {
+      type:    Number,
+      default: 10,
+      min:     0,
     },
-    
+
+    // ── Stock status — auto-computed, do not set directly ────────────────────
     stockStatus: {
-      type: String,
-      enum: ['in_stock', 'low_stock', 'out_of_stock'],
+      type:    String,
+      enum:    ['in_stock', 'low_stock', 'out_of_stock'],
       default: 'in_stock',
     },
-    
-    // Featured & discounts
-    featured: {
-      type: Boolean,
-      default: false,
-    },
+
     isFeatured: {
-      type: Boolean,
-      default: false,  // drives FeaturedGrid on homepage
-    },
-    
-    discountEnabled: {
-      type: Boolean,
+      type:    Boolean,
       default: false,
     },
-    discountPercent: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 100,
-    },
-    discountPercentage: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 100,
-    },
-    discountedPrice: {
-      type: Number,
-      default: 0,
-    },
-    
-    // Additional fields
-    tags: {
-      type: [String],
+
+    gallery: {
+      type:    [String],
       default: [],
     },
-    details: {
-      type: [Object],
-      default: [],
-    },
+
     delivery: {
-      type: String,
+      type:    String,
       default: 'Complimentary Express Shipping',
     },
     returns: {
-      type: String,
+      type:    String,
       default: '30-day graceful returns',
     },
   },
   { timestamps: true }
 );
 
-// Text index for search module
-productSchema.index({ title: 'text', material: 'text', description: 'text' });
-productSchema.index({ featured: 1 });
-productSchema.index({ isFeatured: 1 });
-productSchema.index({ categorySlug: 1 });
-productSchema.index({ discountEnabled: 1 });
-
-// ── Pre-save hook: Auto-sync fields and calculate stockStatus ──────
+// ── Auto-compute stockStatus on .save() ───────────────────────────────────────
 productSchema.pre('save', function (next) {
-  // Sync name ↔ title
-  if (!this.name && this.title) {
-    this.name = this.title;
-  } else if (!this.title && this.name) {
-    this.title = this.name;
-  }
-  
-  // Sync mainImage ↔ image.url
-  if (this.mainImage && !this.image?.url) {
-    this.image = { ...this.image, url: this.mainImage };
-  } else if (this.image?.url && !this.mainImage) {
-    this.mainImage = this.image.url;
-  }
-  
-  // Sync featured ↔ isFeatured
-  if (this.isFeatured) {
-    this.featured = true;
-  } else if (this.featured) {
-    this.isFeatured = true;
-  }
-  
-  // Sync discountPercent ↔ discountPercentage
-  if (this.discountPercentage && !this.discountPercent) {
-    this.discountPercent = this.discountPercentage;
-  } else if (this.discountPercent && !this.discountPercentage) {
-    this.discountPercentage = this.discountPercent;
-  }
-  
-  // Auto-calculate discountedPrice
-  if (this.discountEnabled && this.discountPercent > 0) {
-    this.discountedPrice = parseFloat(
-      (this.price - (this.price * this.discountPercent) / 100).toFixed(2)
-    );
-  } else {
-    this.discountedPrice = this.price;
-  }
-  
-  // Auto-calculate stockStatus based on stock quantity
-  if (this.stock === 0) {
-    this.stockStatus = 'out_of_stock';
-  } else if (this.stock > 0 && this.stock <= 5) {
-    this.stockStatus = 'low_stock';
-  } else {
-    this.stockStatus = 'in_stock';
-  }
-  
+  if      (this.stock === 0)     this.stockStatus = 'out_of_stock';
+  else if (this.stock <= 5)      this.stockStatus = 'low_stock';
+  else                           this.stockStatus = 'in_stock';
   next();
 });
+
+// ── Auto-compute stockStatus on .findByIdAndUpdate() / .patch() ───────────────
+productSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  if (update.stock !== undefined) {
+    if      (update.stock === 0)   update.stockStatus = 'out_of_stock';
+    else if (update.stock <= 5)    update.stockStatus = 'low_stock';
+    else                           update.stockStatus = 'in_stock';
+    this.setUpdate(update);
+  }
+  next();
+});
+
+productSchema.index({ title: 'text', material: 'text', description: 'text' });
+productSchema.index({ category: 1 });
+productSchema.index({ isFeatured: 1 });
 
 const Product = mongoose.model('Product', productSchema);
 export default Product;
