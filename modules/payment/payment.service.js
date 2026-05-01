@@ -138,6 +138,7 @@ export const checkPhonePeStatusService = async (merchantTransactionId) => {
 // ── CREATE GUEST ORDER IN DB ──────────────────────────────────────────────────
 // Called by: POST /api/payment/phonepe/confirm (after payment verified)
 // ── CREATE GUEST ORDER IN DB ──────────────────────────────────────────────────
+// ── CREATE GUEST ORDER IN DB ──────────────────────────────────────────────────
 export const createGuestOrderService = async ({
   merchantTransactionId,
   transactionId,
@@ -164,17 +165,14 @@ export const createGuestOrderService = async ({
       postalCode:   guestAddress?.pincode      || guestAddress?.postalCode   || '',
       country:      'India',
     },
-
-    // ✅ Map productId → product so Mongoose validation passes
     items: items.map(i => ({
-      product:  i.product  || i.productId,   // ← handles both field names
+      product:  i.product  || i.productId,
       title:    i.title    || 'Product',
       material: i.material || '',
       price:    i.price    || 0,
       quantity: i.quantity || 1,
       image:    i.image    || '',
     })),
-
     subtotal:         subtotal     || 0,
     shippingCost:     shippingCost || 0,
     total:            total        || 0,
@@ -183,6 +181,38 @@ export const createGuestOrderService = async ({
     paymentReference: transactionId || merchantTransactionId,
     status:           'pending',
   });
+
+  // ✅ Decrement stock for every ordered item
+  // Uses $inc to atomically reduce — safe for concurrent orders
+  await Promise.allSettled(
+    items.map(async (item) => {
+      const productId = item.product || item.productId;
+      const qty       = item.quantity || 1;
+
+      if (!productId) return;
+
+      // Decrement stock by quantity ordered, floor at 0
+      const updated = await Product.findByIdAndUpdate(
+        productId,
+        { $inc: { stock: -qty } },
+        { new: true }
+      );
+
+      if (updated) {
+        // Recompute stockStatus based on new stock value
+        let newStatus = 'in_stock';
+        if      (updated.stock <= 0) newStatus = 'out_of_stock';
+        else if (updated.stock <= 5) newStatus = 'low_stock';
+
+        // Ensure stock never goes below 0
+        const finalStock = Math.max(0, updated.stock);
+        await Product.findByIdAndUpdate(productId, {
+          stock:       finalStock,
+          stockStatus: newStatus,
+        });
+      }
+    })
+  );
 
   return order;
 };
