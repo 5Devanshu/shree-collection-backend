@@ -203,34 +203,35 @@ export const markPaymentAsFailedService = async (merchantTransactionId) => {
 // ── SEND CONFIRMATION EMAIL ───────────────────────────────────────────────────
 // Called by: POST /api/payment/phonepe/confirm (after order created)
 // ── SEND CONFIRMATION EMAIL ───────────────────────────────────────────────────
+// ✅ Add subtotal and shippingCost to params
 export const sendOrderConfirmationEmailService = async ({
   guestEmail,
   guestName,
   orderNumber,
   total,
+  subtotal,      // ← was missing, caused "subtotal is not defined"
+  shippingCost,  // ← was missing
   items,
 }) => {
   try {
-    // ✅ Matches email.service.js: sendOrderConfirmation(order, email, name)
     await sendOrderConfirmation(
       {
         _id:         orderNumber,
-        orderNumber,
         orderStatus: 'Pending',
-        items:       items.map(i => ({
-          title:     i.title,
-          productId: i.product || i.productId,
-          qty:       i.quantity,
-          price:     i.price,
+        items: (items || []).map(i => ({
+          title:     i.title     || 'Product',
+          productId: i.product   || i.productId,
+          qty:       i.quantity  || 1,
+          price:     i.price     || 0,
         })),
-        subtotal,
-        shippingCost: 0,
+        subtotal:     subtotal     || total,
+        shippingCost: shippingCost || 0,
         total,
-        createdAt:    new Date(),
+        createdAt: new Date(),
         customer: {
-          name:    guestName,
+          name:    guestName || '',
           phone:   '',
-          address: { line1: '', line2: '', city: '', state: '', pincode: '' },
+          address: { line1:'', city:'', state:'', pincode:'' },
         },
       },
       guestEmail,

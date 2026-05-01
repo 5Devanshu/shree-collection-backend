@@ -107,13 +107,14 @@ export const confirmPhonePeCheckout = async (req, res) => {
     });
 
     // Send confirmation email
-  await paymentService.sendOrderConfirmationEmailService({
+// In confirmPhonePeCheckout — update the email service call
+await paymentService.sendOrderConfirmationEmailService({
   guestEmail,
   guestName,
   orderNumber: order.orderNumber,
   total,
-  subtotal,     // ← add
-  shippingCost, // ← add
+  subtotal,      // ← add
+  shippingCost,  // ← add
   items,
 });
 
