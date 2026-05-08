@@ -19,13 +19,13 @@ router.post('/register', register);
 router.post('/login',    login);
 
 // ── Customer only ─────────────────────────────────────────────────────────────
-router.get('/me',    protectCustomer, getMe);
-router.put('/me',    protectCustomer, updateMe);
+router.get('/me',                 protectCustomer, getMe);       // also used as verifyToken — 200 = valid
+router.put('/me',                 protectCustomer, updateMe);
 router.put('/me/change-password', protectCustomer, changePassword);
 
 // Saved addresses
-router.post('/me/addresses',               protectCustomer, addAddress);
-router.delete('/me/addresses/:addressId',  protectCustomer, deleteAddress);
+router.post  ('/me/addresses',              protectCustomer, addAddress);
+router.delete('/me/addresses/:addressId',   protectCustomer, deleteAddress);
 
 // Customer order history
 router.get('/orders',     protectCustomer, getMyOrders);
