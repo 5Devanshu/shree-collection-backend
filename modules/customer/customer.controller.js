@@ -216,17 +216,35 @@ export const changePassword = async (req, res, next) => {
 // ── @access  Customer only
 export const addAddress = async (req, res, next) => {
   try {
-    const { label, line1, line2, city, state, pincode } = req.body;
+    // Support both naming conventions: line1/line2 and addressLine1/addressLine2
+    const {
+      label,
+      line1, line2,
+      addressLine1, addressLine2,
+      city, state, pincode, postalCode, country
+    } = req.body;
 
-    if (!line1 || !city || !state || !pincode) {
+    // Normalize field names
+    const normalizedLine1 = line1 || addressLine1;
+    const normalizedLine2 = line2 || addressLine2;
+    const normalizedPincode = pincode || postalCode;
+
+    if (!normalizedLine1 || !city || !state || !normalizedPincode) {
       return res.status(400).json({
         success: false,
-        message: 'Line1, city, state and pincode are required',
+        message: 'Address line 1, city, state and pincode are required',
       });
     }
 
     const customer = await Customer.findById(req.customer._id);
-    customer.savedAddresses.push({ label: label || 'Home', line1, line2, city, state, pincode });
+    customer.savedAddresses.push({
+      label: label || 'Home',
+      line1: normalizedLine1,
+      line2: normalizedLine2 || '',
+      city,
+      state,
+      pincode: normalizedPincode,
+    });
     await customer.save();
 
     res.status(201).json({
