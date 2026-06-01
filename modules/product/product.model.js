@@ -64,6 +64,10 @@ const productSchema = new mongoose.Schema(
       type:    String,
       default: '30-day graceful returns',
     },
+    sizes: {
+      type:    [String],
+      default: [],               // empty = no sizes applicable for this product
+    },
   },
   { timestamps: true }
 );

@@ -26,6 +26,7 @@ const productSchema = new mongoose.Schema(
     categorySlug: { type: String, required: true, lowercase: true, trim: true },
     description:  { type: String, trim: true, default: '' },
     details:      { type: [detailSchema], default: [] },
+    sizes:        { type: [String], default: [] },    // optional — e.g. for rings: ["5", "6", "7"], apparel: ["S", "M", "L"]
     tags:         { type: [String], default: [] },
     
     // Stock & Featured
