@@ -9,6 +9,8 @@ import {
   deleteProduct,
 } from './product.controller.js';
 import protect from '../auth/auth.middleware.js';
+import { attachReseller } from '../reseller/reseller.middleware.js';
+
 
 const router = express.Router();
 
@@ -36,5 +38,11 @@ router.patch('/:id', protect, updateProduct);
 
 // AdminProducts — "Delete"
 router.delete('/:id', protect, deleteProduct);
+
+// All public product routes get attachReseller so controller knows who's asking
+router.get('/', attachReseller, getAllProducts);
+router.get('/featured', attachReseller, getFeaturedProducts);
+router.get('/category/:slug', attachReseller, getProductsByCategory);
+router.get('/:id', attachReseller, getProductById);
 
 export default router;

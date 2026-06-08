@@ -1,0 +1,27 @@
+import { DataTypes } from 'sequelize';
+import bcrypt from 'bcryptjs';
+import sequelize from '../../config/db.js';
+
+const Reseller = sequelize.define('Reseller', {
+  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+  name:     { type: DataTypes.STRING, allowNull: false },
+  email:    { type: DataTypes.STRING, allowNull: false, unique: true },
+  password: { type: DataTypes.STRING, allowNull: false },
+  phone:    { type: DataTypes.STRING, defaultValue: '' },
+  company:  { type: DataTypes.STRING, defaultValue: '' },  // business name
+  isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+}, { tableName: 'resellers', timestamps: true });
+
+Reseller.beforeCreate(async (r) => {
+  r.password = await bcrypt.hash(r.password, 12);
+});
+
+Reseller.beforeUpdate(async (r) => {
+  if (r.changed('password')) r.password = await bcrypt.hash(r.password, 12);
+});
+
+Reseller.prototype.matchPassword = async function (entered) {
+  return bcrypt.compare(entered, this.password);
+};
+
+export default Reseller;

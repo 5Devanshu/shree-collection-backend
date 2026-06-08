@@ -106,6 +106,10 @@ const Product = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: '30-day graceful returns',
     },
+    resellerPrice: {
+  type: DataTypes.DECIMAL(10, 2),
+  defaultValue: 0,   // 0 means use normal price — admin sets this per product
+},
   },
   {
     tableName: 'products',
