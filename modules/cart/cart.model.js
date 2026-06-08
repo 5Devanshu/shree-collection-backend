@@ -1,69 +1,70 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../../config/db.js';
 
-// Sub-schema: a single item inside the cart
-// Maps to Checkout.jsx Order Summary panel —
-// summary-item-image, summary-item-details (title, material, price)
-const cartItemSchema = new mongoose.Schema(
+// Cart table — session-based guest cart
+// sessionId from x-session-id header links the cart to the browser session
+const Cart = sequelize.define(
+  'Cart',
   {
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true,
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
     },
-    // Snapshot fields — stored so cart remains intact even if product changes
-    title:    { type: String, required: true },
-    material: { type: String, default: '' },
-    price:    { type: Number, required: true },
-    image:    { type: String, default: '' },
-    quantity: { type: Number, required: true, min: 1, default: 1 },
-  },
-  { _id: false }
-);
 
-const cartSchema = new mongoose.Schema(
-  {
-    // Session ID — used for guest carts (no login required on Shree storefront)
-    // Maps to Navbar.jsx Cart (0) — cart is session-linked, not user-linked
+    // Session ID — guest cart, no login required
+    // Matches Navbar.jsx Cart (0) counter and Checkout.jsx Order Summary panel
     sessionId: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
       unique: true,
-      index: true,
     },
 
-    // Cart items — maps to Checkout.jsx summary-items list
+    // Cart items snapshot — [{ productId, title, material, price, image, quantity }]
+    // Stored as JSONB — no separate join table needed
     items: {
-      type: [cartItemSchema],
-      default: [],
+      type: DataTypes.JSONB,
+      defaultValue: [],
     },
 
     // Computed totals — maps to Checkout.jsx summary-totals section
-    subtotal:     { type: Number, default: 0 },
-    shippingCost: { type: Number, default: 0 },  // always 0 — Complimentary
-    total:        { type: Number, default: 0 },
+    subtotal: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+    },
+    shippingCost: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0, // always 0 — Complimentary Express Shipping
+    },
+    total: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+    },
 
-    // TTL — cart auto-expires after 7 days of inactivity
+    // TTL — cart expires after 7 days of inactivity
     expiresAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      type: DataTypes.DATE,
+      defaultValue: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   },
-  { timestamps: true }
+  {
+    tableName: 'carts',
+    timestamps: true,
+    indexes: [
+      { fields: ['sessionId'] },
+      { fields: ['expiresAt'] },
+    ],
+  }
 );
 
-// MongoDB TTL index — auto-deletes expired carts
-cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// Helper: recalculate totals from items array
+// Called in cart.service.js before every save
+Cart.recalculate = (cart) => {
+  const items = cart.items || [];
+  cart.subtotal     = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  cart.shippingCost = 0;
+  cart.total        = cart.subtotal;
+  cart.expiresAt    = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+};
 
-// Recalculate subtotal and total before every save
-cartSchema.pre('save', function (next) {
-  this.subtotal     = this.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  this.shippingCost = 0;                         // Complimentary Express Shipping
-  this.total        = this.subtotal + this.shippingCost;
-
-  // Refresh expiry on each cart activity
-  this.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  next();
-});
-
-const Cart = mongoose.model('Cart', cartSchema);
 export default Cart;
