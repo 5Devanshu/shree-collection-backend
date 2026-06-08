@@ -25,5 +25,7 @@ const Order = sequelize.define('Order', {
 }, { tableName: 'orders', timestamps: true });
 
 Order.belongsTo(Customer, { foreignKey: 'customerId', as: 'customerAccount' });
-
+// models/Order.js
+// Re-export from the module — single source of truth
+export { default } from '../modules/order/order.model.js';
 export default Order;

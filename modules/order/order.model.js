@@ -1,136 +1,123 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../../config/db.js';
 
-// Sub-schema: each item in the order
-// Maps to Checkout.jsx Order Summary — product image, name, material, price
-const orderItemSchema = new mongoose.Schema(
+// Order table
+// items, shippingAddress, customer snapshot stored as JSONB —
+// avoids complex join tables while staying fully queryable in PostgreSQL
+const Order = sequelize.define(
+  'Order',
   {
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true,
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
     },
-    title: { type: String, required: true },   // snapshot at time of purchase
-    material: { type: String },
-    price: { type: Number, required: true },
-    quantity: { type: Number, required: true, min: 1, default: 1 },
-    image: { type: String },
-  },
-  { _id: false }
-);
 
-// Sub-schema: shipping address
-// Maps to Checkout.jsx Shipping Address section fields
-const shippingAddressSchema = new mongoose.Schema(
-  {
-    firstName:  { type: String, required: true },
-    lastName:   { type: String, required: true },
-    addressLine1: { type: String, required: true },
-    addressLine2: { type: String, default: '' },
-    city:       { type: String, required: true },
-    postalCode: { type: String, required: true },
-    country:    { type: String, default: 'India' },
-  },
-  { _id: false }
-);
-
-const orderSchema = new mongoose.Schema(
-  {
-    // Human-readable Order ID — e.g. #ORD-001
+    // Human-readable order number — e.g. #ORD-001
     // Shown in AdminOrders and AdminDashboard tables
     orderNumber: {
-      type: String,
+      type: DataTypes.STRING,
       unique: true,
     },
 
-    // Contact Information — Checkout.jsx form field or guest checkout
+    // Optional FK to Customer — null for guest orders
+    customerId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+    },
+
+    // Contact email — Checkout.jsx Contact Information field
     email: {
-      type: String,
-      required: [true, 'Customer email is required'],
-      lowercase: true,
-      trim: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
 
-    // Guest checkout fields — captures important details without login
-    phone: {
-      type: String,
-      default: null,
-    },
-    firstName: {
-      type: String,
-      default: null,
-    },
-    lastName: {
-      type: String,
-      default: null,
-    },
-    isGuestOrder: {
-      type: Boolean,
-      default: false,
-    },
-
-    // Shipping Address — Checkout.jsx Shipping section
+    // Shipping address snapshot — Checkout.jsx Shipping Address section
+    // { firstName, lastName, addressLine1, addressLine2, city, postalCode, country }
     shippingAddress: {
-      type: shippingAddressSchema,
-      required: true,
+      type: DataTypes.JSONB,
+      allowNull: false,
     },
 
-    // Order Summary — Checkout.jsx right panel items
+    // Order items snapshot — Checkout.jsx Order Summary right panel
+    // [{ productId, title, material, price, quantity, image }]
     items: {
-      type: [orderItemSchema],
-      required: true,
-      validate: [(v) => v.length > 0, 'Order must contain at least one item'],
+      type: DataTypes.JSONB,
+      allowNull: false,
     },
 
-    // Pricing — Checkout.jsx summary totals (Subtotal, Shipping, Total)
-    subtotal:      { type: Number, required: true },
-    shippingCost:  { type: Number, default: 0 },   // Complimentary for Shree
-    total:         { type: Number, required: true },
+    // Pricing — Checkout.jsx summary totals
+    subtotal: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+    },
+    shippingCost: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,
+    },
+    total: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+    },
 
-    // Status — drives AdminOrders status badges: Pending / Confirmed / Shipped / Delivered / Cancelled
+    // Status — drives AdminOrders status badges
     status: {
-      type: String,
-      enum: ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'],
-      default: 'pending',
+      type: DataTypes.ENUM('pending', 'confirmed', 'shipped', 'delivered', 'cancelled'),
+      defaultValue: 'pending',
     },
 
-    // Payment — Checkout.jsx Payment section
+    // Payment
     paymentStatus: {
-      type: String,
-      enum: ['unpaid', 'paid', 'refunded', 'failed'],
-      default: 'unpaid',
+      type: DataTypes.ENUM('unpaid', 'paid', 'failed', 'refunded'),
+      defaultValue: 'unpaid',
     },
     paymentMethod: {
-      type: String,
-      enum: ['card', 'phonepe', 'razorpay', 'cashfree', 'demo'],
-      default: 'phonepe',
+      type: DataTypes.STRING,
+      defaultValue: 'card',
     },
     paymentReference: {
-      type: String,   // payment gateway transaction ID
-      default: null,
-    },
-    paidAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
     },
 
-    // PhonePe specific fields
-    merchantTransactionId: {
-      type: String,
-      default: null,
+    // Cashfree fields
+    cashfreeOrderId: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+    cashfreePaymentId: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+    cashfreePaymentSessionId: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+
+    trackingNumber: {
+      type: DataTypes.STRING,
+      defaultValue: '',
     },
   },
-  { timestamps: true }
+  {
+    tableName: 'orders',
+    timestamps: true,
+    indexes: [
+      { fields: ['status'] },
+      { fields: ['paymentStatus'] },
+      { fields: ['createdAt'] },
+      { fields: ['customerId'] },
+      { fields: ['email'] },
+    ],
+  }
 );
 
-// Auto-generate human-readable Order Number before first save
-// e.g. #ORD-001, #ORD-002 — as shown in AdminOrders table
-orderSchema.pre('save', async function (next) {
-  if (!this.orderNumber) {
-    const count = await mongoose.model('Order').countDocuments();
-    this.orderNumber = `#ORD-${String(count + 1).padStart(3, '0')}`;
-  }
-  next();
+// Auto-generate orderNumber before first insert
+Order.beforeCreate(async (order) => {
+  const count = await Order.count();
+  order.orderNumber = `#ORD-${String(count + 1).padStart(3, '0')}`;
 });
 
-const Order = mongoose.model('Order', orderSchema);
 export default Order;

@@ -2,25 +2,58 @@ import { DataTypes } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import sequelize from '../config/db.js';
 
-const Customer = sequelize.define('Customer', {
-  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-  name: { type: DataTypes.STRING, allowNull: false },
-  email: { type: DataTypes.STRING, allowNull: false, unique: true },
-  phone: { type: DataTypes.STRING },
-  password: { type: DataTypes.STRING, allowNull: false },
-  isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
-  // Stored as JSON array of address objects
-  savedAddresses: { type: DataTypes.JSONB, defaultValue: [] },
-}, { tableName: 'customers', timestamps: true });
+const Customer = sequelize.define(
+  'Customer',
+  {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    phone: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+    // Saved addresses — [{ label, line1, line2, city, state, pincode }]
+    savedAddresses: {
+      type: DataTypes.JSONB,
+      defaultValue: [],
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+  },
+  {
+    tableName: 'customers',
+    timestamps: true,
+  }
+);
 
+// Hash password before create/update
 Customer.beforeSave(async (customer) => {
   if (customer.changed('password')) {
-    customer.password = await bcrypt.hash(customer.password, 12);
+    const salt = await bcrypt.genSalt(12);
+    customer.password = await bcrypt.hash(customer.password, salt);
   }
 });
 
-Customer.prototype.matchPassword = async function (candidate) {
-  return bcrypt.compare(candidate, this.password);
+// Instance method — used in customer.controller.js login
+Customer.prototype.matchPassword = async function (enteredPassword) {
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
 export default Customer;
