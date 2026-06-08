@@ -34,7 +34,11 @@ const Admin = sequelize.define(
   }
 );
 
-Admin.beforeSave(async (admin) => {
+Admin.beforeCreate(async (admin) => {
+  admin.password = await bcrypt.hash(admin.password, 12);
+});
+
+Admin.beforeUpdate(async (admin) => {
   if (admin.changed('password')) {
     admin.password = await bcrypt.hash(admin.password, 12);
   }

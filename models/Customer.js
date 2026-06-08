@@ -19,6 +19,8 @@ const Customer = sequelize.define(
       allowNull: false,
       unique: true,
     },
+    // No select:false in Sequelize — password is always fetched
+    // Never expose it in controller responses manually
     password: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -27,7 +29,6 @@ const Customer = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: '',
     },
-    // Saved addresses — [{ label, line1, line2, city, state, pincode }]
     savedAddresses: {
       type: DataTypes.JSONB,
       defaultValue: [],
@@ -43,15 +44,19 @@ const Customer = sequelize.define(
   }
 );
 
-// Hash password before create/update
-Customer.beforeSave(async (customer) => {
+// Use beforeCreate + beforeUpdate separately — Sequelize has no beforeSave
+Customer.beforeCreate(async (customer) => {
+  const salt = await bcrypt.genSalt(12);
+  customer.password = await bcrypt.hash(customer.password, salt);
+});
+
+Customer.beforeUpdate(async (customer) => {
   if (customer.changed('password')) {
     const salt = await bcrypt.genSalt(12);
     customer.password = await bcrypt.hash(customer.password, salt);
   }
 });
 
-// Instance method — used in customer.controller.js login
 Customer.prototype.matchPassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password);
 };
