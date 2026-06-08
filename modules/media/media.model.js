@@ -1,82 +1,87 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../../config/db.js';
 
 // Tracks every uploaded image in the Media Library
 // Maps to AdminPanel.jsx sidebar → "Media Library" nav item
-const mediaSchema = new mongoose.Schema(
+const Media = sequelize.define(
+  'Media',
   {
-    // Original filename from the admin's machine
-    originalName: {
-      type: String,
-      required: true,
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
     },
 
-    // Cloudinary public ID — used for transformations and deletion
-    publicId: {
-      type: String,
-      required: true,
+    // Original filename from the admin's machine
+    originalName: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: '',
+    },
+
+    // Railway Bucket S3 key — used for deletion
+    // e.g. "product/uuid.jpg"
+    s3Key: {
+      type: DataTypes.STRING,
+      allowNull: false,
       unique: true,
     },
 
-    // Full CDN URL — served in:
-    // ProductCard.jsx .product-image (4:5 aspect ratio object-fit cover)
-    // ProductDescription.jsx .product-full-image (max 600px, object-fit contain)
-    // FeaturedGrid.jsx product grid images
-    // AdminProducts.jsx 40×40 thumbnail column
-    // Hero.jsx full-bleed hero image
+    // Full public URL — served in ProductCard, ProductDescription,
+    // FeaturedGrid, AdminProducts thumbnail, Hero
     url: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
 
-    // Secure HTTPS URL — always used in production
+    // secureUrl kept for API compatibility — same as url (Railway is HTTPS)
     secureUrl: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
 
-    // Image dimensions — useful for frontend layout calculations
-    width:  { type: Number },
-    height: { type: Number },
+    // Image dimensions
+    width:  { type: DataTypes.INTEGER, allowNull: true },
+    height: { type: DataTypes.INTEGER, allowNull: true },
 
     // File metadata
-    format:   { type: String },              // e.g. 'png', 'jpg', 'webp'
-    bytes:    { type: Number },              // file size in bytes
-    mimeType: { type: String },
+    format:   { type: DataTypes.STRING, allowNull: true },   // 'jpg', 'png', 'webp'
+    bytes:    { type: DataTypes.INTEGER, allowNull: true },
+    mimeType: { type: DataTypes.STRING, allowNull: true },
 
-    // Organisational tag — e.g. 'product', 'hero', 'category'
-    // Allows Media Library to filter by usage context
+    // Organisational tag — filters in Media Library
     folder: {
-      type: String,
-      enum: ['product', 'hero', 'category', 'general'],
-      default: 'general',
+      type: DataTypes.ENUM('product', 'hero', 'category', 'general'),
+      defaultValue: 'general',
     },
 
     // Optional alt text for accessibility
     altText: {
-      type: String,
-      default: '',
+      type: DataTypes.STRING,
+      defaultValue: '',
     },
 
-    // Tracks which product this image is attached to (if applicable)
-    // Set when image is uploaded via AdminProducts
-    attachedProduct: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      default: null,
+    // Which product this image is attached to (UUID FK — nullable)
+    attachedProductId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
     },
 
-    // Uploaded by which admin user
-    uploadedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Admin',
-      default: null,
+    // Which admin uploaded it (UUID FK — nullable)
+    uploadedById: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
     },
   },
-  { timestamps: true }
+  {
+    tableName: 'media',
+    timestamps: true,
+    indexes: [
+      { fields: ['folder', 'createdAt'] },
+    ],
+  }
 );
 
-// Index for fast Media Library queries by folder/type
-mediaSchema.index({ folder: 1, createdAt: -1 });
-
-const Media = mongoose.model('Media', mediaSchema);
 export default Media;

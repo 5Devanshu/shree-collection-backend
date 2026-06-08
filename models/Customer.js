@@ -1,61 +1,26 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
 import bcrypt from 'bcryptjs';
+import sequelize from '../config/db.js';
 
-const customerSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true,
-    },
-    email: {
-      type: String,
-      required: [true, 'Email is required'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: [8, 'Password must be at least 8 characters'],
-      select: false,
-    },
-    phone: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    // Saved addresses for faster checkout
-    savedAddresses: [
-      {
-        label:   { type: String, default: 'Home' }, // Home / Office / Other
-        line1:   String,
-        line2:   { type: String, default: '' },
-        city:    String,
-        state:   String,
-        pincode: String,
-      },
-    ],
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-  },
-  { timestamps: true }
-);
+const Customer = sequelize.define('Customer', {
+  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, allowNull: false, unique: true },
+  phone: { type: DataTypes.STRING },
+  password: { type: DataTypes.STRING, allowNull: false },
+  isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+  // Stored as JSON array of address objects
+  savedAddresses: { type: DataTypes.JSONB, defaultValue: [] },
+}, { tableName: 'customers', timestamps: true });
 
-// Hash password before saving
-customerSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  const salt     = await bcrypt.genSalt(12);
-  this.password  = await bcrypt.hash(this.password, salt);
-  next();
+Customer.beforeSave(async (customer) => {
+  if (customer.changed('password')) {
+    customer.password = await bcrypt.hash(customer.password, 12);
+  }
 });
 
-// Compare password
-customerSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+Customer.prototype.matchPassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
 };
 
-export default mongoose.model('Customer', customerSchema);
+export default Customer;

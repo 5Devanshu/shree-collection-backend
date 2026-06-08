@@ -13,8 +13,8 @@ import protect from '../auth/auth.middleware.js';
 
 const router = express.Router();
 
-// Multer — stores uploads in memory buffer before sending to Cloudinary
-// Accepts: jpg, png, webp — matches product image formats used across the store
+// Multer — stores uploads in memory buffer before sending to Railway Bucket
+// Accepts: jpg, jpeg, png, webp — matches product image formats used across the store
 const storage = multer.memoryStorage();
 const fileFilter = (req, file, cb) => {
   const allowed = ['image/jpeg', 'image/png', 'image/webp'];
@@ -27,7 +27,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },   // 10MB max per file
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max per file
 });
 
 // ─── All Media Routes are Admin Protected ─────────────────────────────────────
@@ -39,6 +39,7 @@ router.post('/upload', protect, upload.single('image'), uploadImage);
 router.post('/upload-multiple', protect, upload.array('images', 20), uploadMultipleImages);
 
 // Optimised URL for specific rendering context (product/detail/thumbnail/hero)
+// ⚠️ Must stay above /:id — otherwise Express matches 'optimised-url' as the id param
 router.get('/optimised-url', protect, getOptimisedUrl);
 
 // AdminPanel Media Library — paginated browser with folder filter
@@ -50,7 +51,7 @@ router.get('/:id', protect, getMediaById);
 // Update alt text / folder / attached product
 router.patch('/:id', protect, updateMedia);
 
-// Delete image from Cloudinary + DB + clears product reference
+// Delete image from Railway Bucket + DB + clears product reference
 router.delete('/:id', protect, deleteMedia);
 
 export default router;

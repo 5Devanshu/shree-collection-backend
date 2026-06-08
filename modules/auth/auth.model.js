@@ -1,46 +1,23 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
 import bcrypt from 'bcryptjs';
+import sequelize from '../../config/db.js';
 
-const adminSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true,
-    },
-    email: {
-      type: String,
-      required: [true, 'Email is required'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: 8,
-      select: false,
-    },
-    role: {
-      type: String,
-      enum: ['admin', 'superadmin'],
-      default: 'admin',
-    },
-  },
-  { timestamps: true }
-);
+const Admin = sequelize.define('Admin', {
+  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+  name: { type: DataTypes.STRING, allowNull: false },
+  email: { type: DataTypes.STRING, allowNull: false, unique: true },
+  password: { type: DataTypes.STRING, allowNull: false },
+  role: { type: DataTypes.ENUM('admin', 'superadmin'), defaultValue: 'admin' },
+}, { tableName: 'admins', timestamps: true });
 
-// Hash password before saving
-adminSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
+Admin.beforeSave(async (admin) => {
+  if (admin.changed('password')) {
+    admin.password = await bcrypt.hash(admin.password, 12);
+  }
 });
 
-// Instance method to compare passwords
-adminSchema.methods.comparePassword = async function (candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
+Admin.prototype.comparePassword = async function (candidate) {
+  return bcrypt.compare(candidate, this.password);
 };
 
-const Admin = mongoose.model('Admin', adminSchema);
 export default Admin;

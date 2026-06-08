@@ -1,45 +1,13 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../../config/db.js';
 
-const categorySchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Category name is required'],
-      trim: true,
-      unique: true,
-    },
-    // slug drives the URL — e.g. "rings" → /collections/rings
-    // matches useParams() category in CategoryPage.jsx
-    slug: {
-      type: String,
-      required: [true, 'Slug is required'],
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    description: {
-      type: String,
-      default: '',
-    },
-    isActive: {
-      type: Boolean,
-      default: true,               // drives "Active Categories" stat on AdminDashboard
-    },
-  },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
-);
+const Category = sequelize.define('Category', {
+  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+  name: { type: DataTypes.STRING, allowNull: false },
+  slug: { type: DataTypes.STRING, allowNull: false, unique: true },
+  description: { type: DataTypes.TEXT, defaultValue: '' },
+  image: { type: DataTypes.STRING, defaultValue: '' },    // Railway Bucket URL
+  imageKey: { type: DataTypes.STRING, defaultValue: '' }, // S3 key for deletion
+}, { tableName: 'categories', timestamps: true });
 
-// Virtual field: live product count for AdminCategory table
-categorySchema.virtual('productCount', {
-  ref: 'Product',
-  localField: '_id',
-  foreignField: 'category',
-  count: true,
-});
-
-const Category = mongoose.model('Category', categorySchema);
 export default Category;

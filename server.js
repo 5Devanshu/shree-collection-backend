@@ -1,12 +1,12 @@
-import express  from 'express';
-import dotenv   from 'dotenv';
-import cors     from 'cors';
-import morgan   from 'morgan';
-import connectDB        from './config/db.js';
-import errorHandler     from './middlewares/errorHandler.js';
-import notFound         from './middlewares/notFound.js';
+import express       from 'express';
+import dotenv        from 'dotenv';
+import cors          from 'cors';
+import morgan        from 'morgan';
+import { connectDB } from './config/db.js';
+import errorHandler  from './middlewares/errorHandler.js';
+import notFound      from './middlewares/notFound.js';
 
-// Routes
+// ── Route Imports ─────────────────────────────────────────────────────────────
 import authRoutes      from './modules/auth/auth.routes.js';
 import categoryRoutes  from './modules/category/category.routes.js';
 import productRoutes   from './modules/product/product.routes.js';
@@ -18,14 +18,12 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import searchRoutes    from './modules/search/search.routes.js';
 import customerRoutes  from './modules/customer/customer.routes.js';
 
-// Models
-import './modules/auth/auth.model.js';
-import './modules/category/category.model.js';
-import './modules/product/product.model.js';
-import './modules/order/order.model.js';
-import './models/Customer.js';
-
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+// dotenv must load before connectDB reads process.env
 dotenv.config();
+
+// Connect to PostgreSQL (Railway) and sync all Sequelize models
+// Models are auto-discovered when their modules are imported above
 connectDB();
 
 const app = express();
@@ -54,7 +52,7 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// ⚠️ OPTIONS must be registered BEFORE all other middleware
+// OPTIONS preflight must be registered BEFORE all other middleware
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
@@ -63,9 +61,14 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// ── Health Check ──────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  res.json({ message: 'Shree Collection API is running ✅', env: process.env.NODE_ENV });
+  res.json({
+    message: 'Shree Collection API is running ✅',
+    env:     process.env.NODE_ENV,
+    db:      'PostgreSQL (Railway)',
+    storage: 'Railway Object Storage',
+  });
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────────
@@ -81,9 +84,11 @@ app.use('/api/search',     searchRoutes);
 app.use('/api/customers',  customerRoutes);
 
 // ── Error Handling ────────────────────────────────────────────────────────────
+// notFound must come before errorHandler
 app.use(notFound);
 app.use(errorHandler);
 
+// ── Start Server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);

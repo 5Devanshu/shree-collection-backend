@@ -1,6 +1,6 @@
 import * as mediaService from './media.service.js';
 
-// POST /api/media/upload
+// ─── POST /api/media/upload ───────────────────────────────────────────────────
 // Single image upload — AdminProducts product image field
 export const uploadImage = async (req, res) => {
   try {
@@ -10,12 +10,17 @@ export const uploadImage = async (req, res) => {
 
     const { folder, altText, attachedProduct } = req.body;
 
-    const media = await mediaService.uploadImageService(req.file.buffer, {
-      folder:          folder || 'product',
-      altText:         altText || '',
-      attachedProduct: attachedProduct || null,
-      uploadedBy:      req.admin?._id || null,
-    });
+    const media = await mediaService.uploadImageService(
+      req.file.buffer,
+      req.file.mimetype,
+      {
+        folder:          folder || 'product',
+        altText:         altText || '',
+        originalName:    req.file.originalname,
+        attachedProduct: attachedProduct || null,
+        uploadedBy:      req.admin?.id || null,
+      }
+    );
 
     res.status(201).json({ success: true, media });
   } catch (error) {
@@ -23,7 +28,7 @@ export const uploadImage = async (req, res) => {
   }
 };
 
-// POST /api/media/upload-multiple
+// ─── POST /api/media/upload-multiple ─────────────────────────────────────────
 // Batch upload — AdminPanel Media Library bulk upload
 export const uploadMultipleImages = async (req, res) => {
   try {
@@ -35,7 +40,7 @@ export const uploadMultipleImages = async (req, res) => {
 
     const media = await mediaService.uploadMultipleImagesService(req.files, {
       folder:     folder || 'general',
-      uploadedBy: req.admin?._id || null,
+      uploadedBy: req.admin?.id || null,
     });
 
     res.status(201).json({ success: true, media, count: media.length });
@@ -44,7 +49,7 @@ export const uploadMultipleImages = async (req, res) => {
   }
 };
 
-// GET /api/media
+// ─── GET /api/media ───────────────────────────────────────────────────────────
 // All media with optional folder filter and pagination
 // Powers the AdminPanel Media Library browser
 export const getAllMedia = async (req, res) => {
@@ -56,8 +61,26 @@ export const getAllMedia = async (req, res) => {
   }
 };
 
-// GET /api/media/:id
-// Single media item — prefill when editing product image
+// ─── GET /api/media/optimised-url ────────────────────────────────────────────
+// Railway Bucket has no native transforms — returns the stored URL as-is
+// Kept for API compatibility with frontend calls that previously used Cloudinary
+// NOTE: Must be registered BEFORE /:id route in media.routes.js
+export const getOptimisedUrl = (req, res) => {
+  try {
+    const { url, context } = req.query;
+    if (!url) {
+      return res.status(400).json({ success: false, message: 'url is required' });
+    }
+    // Pass url (not publicId) — service returns it unchanged for now
+    const optimisedUrl = mediaService.getOptimisedUrlService(url, context || 'product');
+    res.status(200).json({ success: true, url: optimisedUrl });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── GET /api/media/:id ───────────────────────────────────────────────────────
+// Single media item — prefill when editing a product in AdminProducts
 export const getMediaById = async (req, res) => {
   try {
     const media = await mediaService.getMediaByIdService(req.params.id);
@@ -67,23 +90,7 @@ export const getMediaById = async (req, res) => {
   }
 };
 
-// GET /api/media/optimised-url
-// Returns a context-specific optimised Cloudinary URL
-// Contexts: product | detail | thumbnail | hero
-export const getOptimisedUrl = (req, res) => {
-  try {
-    const { publicId, context } = req.query;
-    if (!publicId) {
-      return res.status(400).json({ success: false, message: 'publicId is required' });
-    }
-    const url = mediaService.getOptimisedUrlService(publicId, context || 'product');
-    res.status(200).json({ success: true, url });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// PATCH /api/media/:id
+// ─── PATCH /api/media/:id ─────────────────────────────────────────────────────
 // Update alt text, folder, or attached product
 export const updateMedia = async (req, res) => {
   try {
@@ -94,8 +101,8 @@ export const updateMedia = async (req, res) => {
   }
 };
 
-// DELETE /api/media/:id
-// Delete from Cloudinary + Media Library + clears product image reference
+// ─── DELETE /api/media/:id ────────────────────────────────────────────────────
+// Delete from Railway Bucket + Media table + clears product image reference
 export const deleteMedia = async (req, res) => {
   try {
     const result = await mediaService.deleteMediaService(req.params.id);
