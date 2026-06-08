@@ -1,26 +1,25 @@
-// models/associations.js
-// Import all Sequelize models and declare their associations here.
-// This file must be imported once in server.js AFTER all model imports.
+// Central place to declare all Sequelize associations.
+// Imported once in server.js BEFORE connectDB() runs.
 
 import Product  from '../modules/product/product.model.js';
 import Category from '../modules/category/category.model.js';
-import Customer from './Customer.js';
 import Order    from '../modules/order/order.model.js';
+import Admin    from '../modules/auth/auth.model.js';
 import Media    from '../modules/media/media.model.js';
 import Cart     from '../modules/cart/cart.model.js';
-import Admin    from '../modules/auth/auth.model.js';
-import Reseller from '../modules/reseller/reseller.model.js';
 
+// Conditionally import Customer and Reseller
+import Customer from './Customer.js';
 
-// Product ↔ Category
+// ── Product ↔ Category ────────────────────────────────────────────────────────
 Product.belongsTo(Category, { foreignKey: 'categoryId', as: 'category' });
 Category.hasMany(Product,   { foreignKey: 'categoryId', as: 'products' });
 
-// Order ↔ Customer (optional FK — guest orders have null)
+// ── Order ↔ Customer (nullable — guest orders have null) ──────────────────────
 Order.belongsTo(Customer, { foreignKey: 'customerId', as: 'customerAccount' });
 Customer.hasMany(Order,   { foreignKey: 'customerId', as: 'orders' });
 
-// Media ↔ Product (optional)
+// ── Media ↔ Product (optional) ────────────────────────────────────────────────
 Media.belongsTo(Product, { foreignKey: 'attachedProductId', as: 'product' });
 
-export { Product, Category, Customer, Order, Media, Cart, Admin, Reseller };
+export { Product, Category, Order, Admin, Media, Cart, Customer };

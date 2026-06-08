@@ -1,37 +1,15 @@
-const mongoose = require('mongoose');
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db.js';
 
-const stockNotificationSchema = new mongoose.Schema(
-  {
-    productId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref:  'Product',
-      required: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      lowercase: true,
-      trim: true,
-    },
-    // Optional — if the customer was logged in when they subscribed
-    customerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref:  'Customer',
-      default: null,
-    },
-    notified: {
-      type: Boolean,
-      default: false,
-    },
-    notifiedAt: {
-      type: Date,
-      default: null,
-    },
+const StockNotification = sequelize.define('StockNotification', {
+  id: {
+    type:         DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey:   true,
   },
-  { timestamps: true }
-);
+  productId: { type: DataTypes.UUID, allowNull: false },
+  email:     { type: DataTypes.STRING, allowNull: false },
+  notified:  { type: DataTypes.BOOLEAN, defaultValue: false },
+}, { tableName: 'stock_notifications', timestamps: true });
 
-// One email per product — prevent duplicate subscriptions
-stockNotificationSchema.index({ productId: 1, email: 1 }, { unique: true });
-
-module.exports = mongoose.model('StockNotification', stockNotificationSchema);
+export default StockNotification;
