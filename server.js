@@ -18,12 +18,13 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import searchRoutes    from './modules/search/search.routes.js';
 import customerRoutes  from './modules/customer/customer.routes.js';
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
-// dotenv must load before connectDB reads process.env
-dotenv.config();
+// ── Sequelize Model Associations ──────────────────────────────────────────────
+// Must be imported before connectDB() so all associations are registered
+// before sequelize.sync() runs and creates foreign key columns
+import './models/associations.js';
 
-// Connect to PostgreSQL (Railway) and sync all Sequelize models
-// Models are auto-discovered when their modules are imported above
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+dotenv.config();
 connectDB();
 
 const app = express();
@@ -52,7 +53,6 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// OPTIONS preflight must be registered BEFORE all other middleware
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
@@ -84,7 +84,6 @@ app.use('/api/search',     searchRoutes);
 app.use('/api/customers',  customerRoutes);
 
 // ── Error Handling ────────────────────────────────────────────────────────────
-// notFound must come before errorHandler
 app.use(notFound);
 app.use(errorHandler);
 
