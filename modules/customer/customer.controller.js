@@ -1,6 +1,6 @@
-import jwt from 'jsonwebtoken';
+import jwt      from 'jsonwebtoken';
 import Customer from '../../models/Customer.js';
-import Order from '../../modules/order/order.model.js';
+import Order    from '../../modules/order/order.model.js';
 import { sendWelcomeEmail } from '../../services/email.service.js';
 
 const generateCustomerToken = (id) =>
@@ -8,126 +8,81 @@ const generateCustomerToken = (id) =>
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
 
-// ── @desc    Register customer
-// ── @route   POST /api/customers/register
-// ── @access  Public
+// POST /api/customers/register
 export const register = async (req, res, next) => {
   try {
     const { name, email, password, phone } = req.body;
 
     if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Name, email and password are required',
-      });
+      return res.status(400).json({ success: false, message: 'Name, email and password are required' });
     }
-
     if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 8 characters',
-      });
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
     }
 
-    const existing = await Customer.findOne({ email });
+    const existing = await Customer.findOne({ where: { email } });
     if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'An account with this email already exists',
-      });
+      return res.status(400).json({ success: false, message: 'An account with this email already exists' });
     }
 
     const customer = await Customer.create({ name, email, password, phone });
-    const token    = generateCustomerToken(customer._id);
+    const token    = generateCustomerToken(customer.id);
 
-    // Send welcome email (async, non-blocking)
-    sendWelcomeEmail(customer.email, customer.name).catch(err => 
+    sendWelcomeEmail(customer.email, customer.name).catch((err) =>
       console.error('Failed to send welcome email:', err)
     );
 
     res.status(201).json({
-      success: true,
-      message: 'Account created successfully',
+      success:  true,
+      message:  'Account created successfully',
       token,
-      customer: {
-        id:    customer._id,
-        name:  customer.name,
-        email: customer.email,
-        phone: customer.phone,
-      },
+      customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone },
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Login customer
-// ── @route   POST /api/customers/login
-// ── @access  Public
+// POST /api/customers/login
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password are required',
-      });
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    const customer = await Customer.findOne({ email }).select('+password');
+    // Sequelize: use where object — no .select() needed, password is always fetched
+    const customer = await Customer.findOne({ where: { email } });
 
     if (!customer) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
-      });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
-
     if (!customer.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been deactivated. Please contact support.',
-      });
+      return res.status(403).json({ success: false, message: 'Your account has been deactivated. Please contact support.' });
     }
 
     const isMatch = await customer.matchPassword(password);
-
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
-      });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const token = generateCustomerToken(customer._id);
+    const token = generateCustomerToken(customer.id);
 
     res.status(200).json({
-      success: true,
+      success:  true,
       token,
-      customer: {
-        id:    customer._id,
-        name:  customer.name,
-        email: customer.email,
-        phone: customer.phone,
-      },
+      customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone },
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Get current customer profile
-// ── @route   GET /api/customers/me
-// ── @access  Customer only
+// GET /api/customers/me
 export const getMe = async (req, res, next) => {
   try {
-    const customer = await Customer.findById(req.customer._id);
-
+    const customer = await Customer.findByPk(req.customer.id);
     res.status(200).json({
       success: true,
       data: {
-        id:             customer._id,
+        id:             customer.id,
         name:           customer.name,
         email:          customer.email,
         phone:          customer.phone,
@@ -135,174 +90,90 @@ export const getMe = async (req, res, next) => {
         createdAt:      customer.createdAt,
       },
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Update customer profile
-// ── @route   PUT /api/customers/me
-// ── @access  Customer only
+// PUT /api/customers/me
 export const updateMe = async (req, res, next) => {
   try {
     const { name, phone } = req.body;
-    const customer        = await Customer.findById(req.customer._id);
+    const customer        = await Customer.findByPk(req.customer.id);
 
     if (name)  customer.name  = name;
     if (phone) customer.phone = phone;
-
-    const updated = await customer.save();
+    await customer.save();
 
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      data: {
-        id:    updated._id,
-        name:  updated.name,
-        email: updated.email,
-        phone: updated.phone,
-      },
+      data: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone },
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Change password
-// ── @route   PUT /api/customers/me/change-password
-// ── @access  Customer only
+// PUT /api/customers/me/change-password
 export const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
+    const customer = await Customer.findByPk(req.customer.id);
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password and new password are required',
-      });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: 'New password must be at least 8 characters',
-      });
-    }
-
-    const customer = await Customer.findById(req.customer._id).select('+password');
-    const isMatch  = await customer.matchPassword(currentPassword);
-
+    const isMatch = await customer.matchPassword(currentPassword);
     if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Current password is incorrect',
-      });
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 8 characters' });
     }
 
-    customer.password = newPassword;
+    customer.password = newPassword; // beforeSave hook hashes it
     await customer.save();
 
-    res.status(200).json({
-      success: true,
-      message: 'Password changed successfully',
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Save a delivery address
-// ── @route   POST /api/customers/me/addresses
-// ── @access  Customer only
+// POST /api/customers/me/addresses
 export const addAddress = async (req, res, next) => {
   try {
-    // Support both naming conventions: line1/line2 and addressLine1/addressLine2
-    const {
-      label,
-      line1, line2,
-      addressLine1, addressLine2,
-      city, state, pincode, postalCode, country
-    } = req.body;
-
-    // Normalize field names
-    const normalizedLine1 = line1 || addressLine1;
-    const normalizedLine2 = line2 || addressLine2;
-    const normalizedPincode = pincode || postalCode;
-
-    if (!normalizedLine1 || !city || !state || !normalizedPincode) {
-      return res.status(400).json({
-        success: false,
-        message: 'Address line 1, city, state and pincode are required',
-      });
-    }
-
-    const customer = await Customer.findById(req.customer._id);
-    customer.savedAddresses.push({
-      label: label || 'Home',
-      line1: normalizedLine1,
-      line2: normalizedLine2 || '',
-      city,
-      state,
-      pincode: normalizedPincode,
-    });
+    const customer  = await Customer.findByPk(req.customer.id);
+    const addresses = [...(customer.savedAddresses || [])];
+    addresses.push({ ...req.body, _id: Date.now().toString() });
+    customer.savedAddresses = addresses;
     await customer.save();
 
-    res.status(201).json({
-      success: true,
-      message: 'Address saved successfully',
-      data:    customer.savedAddresses,
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.status(200).json({ success: true, message: 'Address added', data: customer.savedAddresses });
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Delete a saved address
-// ── @route   DELETE /api/customers/me/addresses/:addressId
-// ── @access  Customer only
+// DELETE /api/customers/me/addresses/:addressId
 export const deleteAddress = async (req, res, next) => {
   try {
-    const customer = await Customer.findById(req.customer._id);
-    customer.savedAddresses = customer.savedAddresses.filter(
-      a => a._id.toString() !== req.params.addressId
+    const customer  = await Customer.findByPk(req.customer.id);
+    customer.savedAddresses = (customer.savedAddresses || []).filter(
+      (a) => a._id !== req.params.addressId
     );
     await customer.save();
 
-    res.status(200).json({
-      success: true,
-      message: 'Address removed',
-      data:    customer.savedAddresses,
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.status(200).json({ success: true, message: 'Address removed', data: customer.savedAddresses });
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Get all orders for logged-in customer
-// ── @route   GET /api/customers/orders
-// ── @access  Customer only
 // GET /api/customers/orders
 export const getMyOrders = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
+    const where = { customerId: req.customer.id };
+    if (status) where.status = status;
 
-    // ✅ Find by customerId OR by email — covers both linked and guest orders
-    const filter = {
-      $or: [
-        { customerId: req.customer._id },
-        { email:      req.customer.email },
-      ],
-    };
-    if (status) filter.status = status;
-
-    const pageNum  = Math.max(1, parseInt(page,  10));
+    const pageNum  = Math.max(1, parseInt(page, 10));
     const limitNum = Math.min(20, parseInt(limit, 10));
-    const skip     = (pageNum - 1) * limitNum;
 
-    const [orders, total] = await Promise.all([
-      Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
-      Order.countDocuments(filter),
-    ]);
+    const { rows: orders, count: total } = await Order.findAndCountAll({
+      where,
+      order:  [['createdAt', 'DESC']],
+      offset: (pageNum - 1) * limitNum,
+      limit:  limitNum,
+    });
 
     res.status(200).json({
       success: true,
@@ -312,33 +183,20 @@ export const getMyOrders = async (req, res, next) => {
       totalPages: Math.ceil(total / limitNum),
       data:       orders,
     });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
-// ── @desc    Get single order detail for logged-in customer
-// ── @route   GET /api/customers/orders/:id
-// ── @access  Customer only
+// GET /api/customers/orders/:id
 export const getMyOrderById = async (req, res, next) => {
   try {
     const order = await Order.findOne({
-      _id:        req.params.id,
-      customerId: req.customer._id,  // ensure customer can only see their own orders
+      where: { id: req.params.id, customerId: req.customer.id },
     });
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
-      });
+      return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: order,
-    });
-  } catch (err) {
-    next(err);
-  }
+    res.status(200).json({ success: true, data: order });
+  } catch (err) { next(err); }
 };
