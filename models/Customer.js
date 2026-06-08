@@ -1,2 +1,3 @@
-// Re-export from module — single source of truth
-export { default } from '../modules/customer/customer.model.js';
+// Customer model removed — orders now reference Reseller or are guest (null)
+// This file kept as empty stub to avoid import errors during transition
+export default null;
