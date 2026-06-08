@@ -9,6 +9,8 @@ import Order    from '../modules/order/order.model.js';
 import Media    from '../modules/media/media.model.js';
 import Cart     from '../modules/cart/cart.model.js';
 import Admin    from '../modules/auth/auth.model.js';
+import Reseller from '../modules/reseller/reseller.model.js';
+
 
 // Product ↔ Category
 Product.belongsTo(Category, { foreignKey: 'categoryId', as: 'category' });
@@ -21,4 +23,4 @@ Customer.hasMany(Order,   { foreignKey: 'customerId', as: 'orders' });
 // Media ↔ Product (optional)
 Media.belongsTo(Product, { foreignKey: 'attachedProductId', as: 'product' });
 
-export { Product, Category, Customer, Order, Media, Cart, Admin };
+export { Product, Category, Customer, Order, Media, Cart, Admin, Reseller };
