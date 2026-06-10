@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerAdmin, loginAdmin, logoutAdmin, getMe, changePassword } from './auth.controller.js';
+import { registerAdmin, loginAdmin, logoutAdmin, getMe, changePassword, identifyAccount } from './auth.controller.js';
 import protect from './auth.middleware.js';
 
 const router = express.Router();
@@ -8,6 +8,7 @@ const router = express.Router();
 router.post('/register', registerAdmin);
 router.post('/login', loginAdmin);
 router.post('/logout', logoutAdmin);
+router.post('/identify', identifyAccount); 
 
 // Protected routes (require valid JWT)
 router.get('/me', protect, getMe);

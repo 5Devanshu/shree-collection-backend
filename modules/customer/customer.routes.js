@@ -1,34 +1,8 @@
 import express from 'express';
-import {
-  register,
-  login,
-  getMe,
-  updateMe,
-  changePassword,
-  addAddress,
-  deleteAddress,
-  getMyOrders,
-  getMyOrderById,
-} from './customer.controller.js';
-import { protectCustomer } from './customer.middleware.js';
+import { registerCustomer, requestOtp, verifyOtp } from './customer.controller.js';
 
 const router = express.Router();
-
-// ── Public ────────────────────────────────────────────────────────────────────
-router.post('/register', register);
-router.post('/login',    login);
-
-// ── Customer only ─────────────────────────────────────────────────────────────
-router.get('/me',                 protectCustomer, getMe);       // also used as verifyToken — 200 = valid
-router.put('/me',                 protectCustomer, updateMe);
-router.put('/me/change-password', protectCustomer, changePassword);
-
-// Saved addresses
-router.post  ('/me/addresses',              protectCustomer, addAddress);
-router.delete('/me/addresses/:addressId',   protectCustomer, deleteAddress);
-
-// Customer order history
-router.get('/orders',     protectCustomer, getMyOrders);
-router.get('/orders/:id', protectCustomer, getMyOrderById);
-
+router.post('/register',    registerCustomer);
+router.post('/request-otp', requestOtp);
+router.post('/verify-otp',  verifyOtp);
 export default router;

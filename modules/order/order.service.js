@@ -1,104 +1,116 @@
-import Order from './order.model.js';
+import { Op } from 'sequelize';
 import { Parser } from 'json2csv';
-import { sendOrderConfirmationEmail } from '../../config/mailer.js';
+import Order   from './order.model.js';
+import Product from '../product/product.model.js';
+import { sendOrderConfirmationEmail, sendLowStockAlert } from '../../services/brevo.service.js';
 
-// Create a new order on checkout form submission
-// Maps to Checkout.jsx "Complete Order" button
+// ── Helper: decrement stock for each ordered item + low-stock alerts ──────────
+export const decrementStockForItems = async (items) => {
+  for (const item of items) {
+    const product = await Product.findByPk(item.productId || item.product);
+    if (!product) continue;
+
+    const previousStock = product.stock;
+    const newStock      = Math.max(0, previousStock - (item.quantity || 1));
+
+    const stockStatus =
+      newStock === 0  ? 'out_of_stock' :
+      newStock <= 5   ? 'low_stock'    : 'in_stock';
+
+    await product.update({ stock: newStock, stockStatus });
+
+    // Alert admin once, when stock first crosses the threshold
+    if (newStock <= 5 && previousStock > 5) {
+      await sendLowStockAlert(product);
+    }
+  }
+};
+
+// ── Create order ──────────────────────────────────────────────────────────────
 export const createOrderService = async (data) => {
   const { items, shippingCost = 0 } = data;
 
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total    = subtotal + shippingCost;
+  const subtotal = items.reduce((sum, i) => sum + Number(i.price) * (i.quantity || 1), 0);
+  const total    = subtotal + Number(shippingCost);
 
   const order = await Order.create({ ...data, subtotal, total });
-  
-  // ── Send confirmation email to customer ──────────────────────────────────
-  try {
-    const customerName = `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`;
-    await sendOrderConfirmationEmail({
-      to: order.email,
-      customerName,
-      orderId: order.orderNumber,
-      items: order.items,
-      total: order.total,
-    });
-    console.log(`✓ Confirmation email sent to ${order.email}`);
-  } catch (emailError) {
-    console.error(`✗ Email failed for ${order.email}:`, emailError.message);
-    // Don't fail order creation if email fails - order is still valid
-  }
-  
+
+  await decrementStockForItems(items);
+
+  // Confirmation email — never fail the order if email fails (Brevo service swallows errors)
+  const name = data.shippingAddress
+    ? `${data.shippingAddress.firstName || ''} ${data.shippingAddress.lastName || ''}`.trim() || 'Customer'
+    : 'Customer';
+  await sendOrderConfirmationEmail(order.email, {
+    orderNumber: order.orderNumber,
+    name,
+    items: order.items,
+    total: order.total,
+  });
+
   return order;
 };
 
-// Get all orders with optional filters and pagination
-// Maps to AdminOrders full table (Order ID, Customer, Date, Status, Total)
+// ── Get all orders (AdminOrders table) ────────────────────────────────────────
 export const getAllOrdersService = async ({ page = 1, limit = 20, status } = {}) => {
-  const filter = {};
-  if (status) filter.status = status;
+  const where = {};
+  if (status) where.status = status;
 
-  const skip = (page - 1) * limit;
+  const offset = (Number(page) - 1) * Number(limit);
 
-  const [orders, total] = await Promise.all([
-    Order.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit))
-      .populate('items.product', 'title image'),
-    Order.countDocuments(filter),
-  ]);
+  const { rows: orders, count: total } = await Order.findAndCountAll({
+    where,
+    order:  [['createdAt', 'DESC']],
+    offset,
+    limit:  Number(limit),
+  });
 
   return { orders, total, page: Number(page), limit: Number(limit) };
 };
 
-// Get recent orders for AdminDashboard "Recent Orders Overview" table
+// ── Recent orders (AdminDashboard) ────────────────────────────────────────────
 export const getRecentOrdersService = async (limit = 5) => {
-  return Order.find()
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .populate('items.product', 'title image');
+  return Order.findAll({ order: [['createdAt', 'DESC']], limit: Number(limit) });
 };
 
-// Get a single order by ID
-// Maps to AdminOrders "View" button
+// ── Single order ──────────────────────────────────────────────────────────────
 export const getOrderByIdService = async (id) => {
-  const order = await Order.findById(id).populate('items.product', 'title image material');
+  const order = await Order.findByPk(id);
   if (!order) throw new Error('Order not found');
   return order;
 };
 
-// Update order status
-// Maps to AdminOrders status badge update: pending → shipped → delivered
-export const updateOrderStatusService = async (id, { status, paymentStatus }) => {
+// ── Update status / payment status ────────────────────────────────────────────
+export const updateOrderStatusService = async (id, { status, paymentStatus, trackingNumber }) => {
+  const order = await Order.findByPk(id);
+  if (!order) throw new Error('Order not found');
+
   const updates = {};
-  if (status)        updates.status        = status;
-  if (paymentStatus) updates.paymentStatus = paymentStatus;
+  if (status)         updates.status         = status;
+  if (paymentStatus)  updates.paymentStatus  = paymentStatus;
+  if (trackingNumber !== undefined) updates.trackingNumber = trackingNumber;
 
-  const order = await Order.findByIdAndUpdate(id, updates, {
-    new: true,
-    runValidators: true,
-  });
-  if (!order) throw new Error('Order not found');
+  await order.update(updates);
   return order;
 };
 
-// Delete / cancel an order
+// ── Delete order ──────────────────────────────────────────────────────────────
 export const deleteOrderService = async (id) => {
-  const order = await Order.findByIdAndDelete(id);
+  const order = await Order.findByPk(id);
   if (!order) throw new Error('Order not found');
+  await order.destroy();
   return { message: 'Order deleted successfully' };
 };
 
-// Export all orders as CSV
-// Maps to AdminOrders "Export CSV" button
+// ── Export CSV (AdminOrders) ──────────────────────────────────────────────────
 export const exportOrdersCSVService = async () => {
-  const orders = await Order.find().sort({ createdAt: -1 });
+  const orders = await Order.findAll({ order: [['createdAt', 'DESC']] });
 
   const rows = orders.map((o) => ({
     orderNumber:   o.orderNumber,
     email:         o.email,
-    customerName:  `${o.shippingAddress.firstName} ${o.shippingAddress.lastName}`,
-    city:          o.shippingAddress.city,
+    customerName:  `${o.shippingAddress?.firstName || ''} ${o.shippingAddress?.lastName || ''}`.trim(),
+    city:          o.shippingAddress?.city || '',
     status:        o.status,
     paymentStatus: o.paymentStatus,
     subtotal:      o.subtotal,
@@ -111,17 +123,12 @@ export const exportOrdersCSVService = async () => {
   return parser.parse(rows);
 };
 
-// Aggregated stats for AdminDashboard stat cards
-// Total Revenue + Total Orders count
+// ── Stats (AdminDashboard stat cards) ─────────────────────────────────────────
 export const getOrderStatsService = async () => {
-  const [revenueResult, totalOrders] = await Promise.all([
-    Order.aggregate([
-      { $match: { paymentStatus: 'paid' } },
-      { $group: { _id: null, totalRevenue: { $sum: '$total' } } },
-    ]),
-    Order.countDocuments(),
+  const [totalRevenue, totalOrders] = await Promise.all([
+    Order.sum('total', { where: { paymentStatus: 'paid' } }),
+    Order.count(),
   ]);
 
-  const totalRevenue = revenueResult[0]?.totalRevenue ?? 0;
-  return { totalRevenue, totalOrders };
+  return { totalRevenue: Number(totalRevenue) || 0, totalOrders };
 };

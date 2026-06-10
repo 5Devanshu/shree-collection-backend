@@ -3,18 +3,17 @@ import {
   Env,
   StandardCheckoutPayRequest,
 } from '@phonepe-pg/pg-sdk-node';
-import crypto from 'crypto';
 import Order   from '../order/order.model.js';
 import Product from '../product/product.model.js';
+import { decrementStockForItems } from '../order/order.service.js';
+import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 
 // ─── PhonePe Client (singleton) ───────────────────────────────────────────────
-// StandardCheckoutClient throws PhonePeException if instantiated more than once
 let phonePeClient;
 
 const getPhonePeClient = () => {
   if (!phonePeClient) {
     const env = process.env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
-
     phonePeClient = StandardCheckoutClient.getInstance(
       process.env.PHONEPE_CLIENT_ID,
       process.env.PHONEPE_CLIENT_SECRET,
@@ -25,41 +24,42 @@ const getPhonePeClient = () => {
   return phonePeClient;
 };
 
+// ─── Helper: server-side authoritative price ──────────────────────────────────
+// Reseller → resellerPrice (if set) · Retail → discountedPrice if active, else price
+const resolvePrice = (product, isReseller) => {
+  if (isReseller && Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
+  if (product.discountEnabled && Number(product.discountedPrice) > 0) return Number(product.discountedPrice);
+  return Number(product.price);
+};
+
 // ─── Step 1: Validate Cart ────────────────────────────────────────────────────
-// Server-side validation of every cart item sent from Checkout.jsx
-// Checks: product exists, not out of stock, price not tampered
-export const validateCartService = async (items) => {
-  if (!items || items.length === 0) {
-    throw new Error('Cart is empty');
-  }
+export const validateCartService = async (items, isReseller = false) => {
+  if (!items || items.length === 0) throw new Error('Cart is empty');
 
   const validated = [];
 
   for (const item of items) {
-    const product = await Product.findById(item.productId).populate('category', 'name');
+    const product = await Product.findByPk(item.productId);
 
-    if (!product) {
-      throw new Error(`Product not found: ${item.productId}`);
-    }
-
+    if (!product) throw new Error(`Product not found: ${item.productId}`);
     if (product.stockStatus === 'out_of_stock') {
       throw new Error(`"${product.title}" is currently out of stock`);
     }
 
-    // Prevents frontend price tampering
-    if (product.price !== item.price) {
-      throw new Error(
-        `Price mismatch for "${product.title}". Please refresh and try again.`
-      );
+    const expectedPrice = resolvePrice(product, isReseller);
+
+    // DECIMAL comes back as a string from Postgres — compare as numbers
+    if (Number(item.price) !== expectedPrice) {
+      throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
     }
 
     validated.push({
-      product:  product._id,
-      title:    product.title,
-      material: product.material,
-      price:    product.price,
-      quantity: item.quantity || 1,
-      image:    product.image?.url || '',
+      productId: product.id,
+      title:     product.title,
+      material:  product.material,
+      price:     expectedPrice,
+      quantity:  item.quantity || 1,
+      image:     product.imageUrl || '',
     });
   }
 
@@ -67,7 +67,6 @@ export const validateCartService = async (items) => {
 };
 
 // ─── Step 2: Calculate Totals ─────────────────────────────────────────────────
-// Maps to Checkout.jsx Order Summary: Subtotal, Shipping, Total rows
 export const calculateTotalsService = (validatedItems) => {
   const subtotal     = validatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const shippingCost = 0;   // Complimentary Express Shipping
@@ -76,64 +75,44 @@ export const calculateTotalsService = (validatedItems) => {
 };
 
 // ─── Step 3: Create PhonePe Payment Order ────────────────────────────────────
-// Builds a StandardCheckoutPayRequest and calls client.pay()
-// Returns: { checkoutUrl, merchantOrderId }
-// The checkoutUrl is loaded in the iframe on your frontend
 export const createPaymentOrderService = async (total, email) => {
   const client = getPhonePeClient();
 
-  // Unique merchant order ID for this transaction
   const merchantOrderId = `SC_${Date.now()}_${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-
-  // Amount in paise (PhonePe requires integer paise, same as Razorpay)
-  const amountInPaise = Math.round(total * 100);
-
-  // Redirect URL — PhonePe will send the customer here after payment
-  const redirectUrl = `${process.env.FRONTEND_URL}/checkout/callback?merchantOrderId=${merchantOrderId}`;
+  const amountInPaise   = Math.round(total * 100);
+  const redirectUrl     = `${process.env.FRONTEND_URL}/checkout/callback?merchantOrderId=${merchantOrderId}`;
 
   const request = StandardCheckoutPayRequest.builder()
     .merchantOrderId(merchantOrderId)
     .amount(amountInPaise)
     .redirectUrl(redirectUrl)
-    // Optional: pass expiry (seconds), default is 20 minutes
-    // .expireAfter(1200)
-    // Optional: pass user-defined fields received back in webhook/status
-    .metaInfo({
-      udf1: email,
-      udf2: 'shree-collection',
-    })
+    .metaInfo({ udf1: email, udf2: 'shree-collection' })
     .build();
 
   const response = await client.pay(request);
 
-  // response.redirectUrl  → PhonePe hosted checkout page URL (use in iframe)
-  // response.orderId      → PhonePe internal order id (for reference)
   return {
-    checkoutUrl:     response.redirectUrl,
+    checkoutUrl:    response.redirectUrl,
     merchantOrderId,
-    phonePeOrderId:  response.orderId,
+    phonePeOrderId: response.orderId,
   };
 };
 
 // ─── Step 4: Check Order Payment Status ──────────────────────────────────────
-// Use this to manually verify payment when webhook is missed or as a fallback
-// Always rely on payload.state (root-level) for the final status
 export const checkOrderStatusService = async (merchantOrderId) => {
   const client   = getPhonePeClient();
   const response = await client.getOrderStatus(merchantOrderId);
-
-  // response.state: COMPLETED | FAILED | PENDING
   return {
-    state:           response.state,
+    state:           response.state,   // COMPLETED | FAILED | PENDING
     merchantOrderId: response.merchantOrderId,
-    amount:          response.amount,          // in paise
-    paymentDetails:  response.paymentDetails,  // array of payment attempt details
+    amount:          response.amount,
+    paymentDetails:  response.paymentDetails,
   };
 };
 
 // ─── Step 5: Confirm & Place Order in DB ─────────────────────────────────────
-// Called after PhonePe confirms payment (via webhook or status poll)
-// Creates the Order document in MongoDB — same schema as your existing orders
+// Called after PhonePe confirms payment. Creates the order, decrements stock
+// (with admin low-stock alerts), and sends the Brevo confirmation email.
 export const confirmOrderService = async ({
   email,
   shippingAddress,
@@ -143,6 +122,8 @@ export const confirmOrderService = async ({
   total,
   merchantOrderId,
   phonePeTransactionId,
+  resellerId = null,
+  customerId = null,
 }) => {
   const order = await Order.create({
     email,
@@ -155,19 +136,24 @@ export const confirmOrderService = async ({
     paymentMethod:    'phonepe',
     paymentReference: phonePeTransactionId || merchantOrderId,
     status:           'pending',
+    resellerId,
+    customerId,
+  });
+
+  await decrementStockForItems(validatedItems);
+
+  const name = `${shippingAddress?.firstName || ''} ${shippingAddress?.lastName || ''}`.trim() || 'Customer';
+  await sendOrderConfirmationEmail(order.email, {
+    orderNumber: order.orderNumber,
+    name,
+    items: validatedItems,
+    total: order.total,
   });
 
   return order;
 };
 
-// ─── Step 6: Send Order Confirmation Email ────────────────────────────────────
-// Reuses your existing email.service.js — no changes needed there
-export { sendOrderConfirmation } from '../../services/email.service.js';
-
 // ─── Webhook: Validate PhonePe Callback ──────────────────────────────────────
-// PhonePe sends a server-to-server POST to /api/checkout/webhook
-// Use validateCallback() to verify authenticity before processing
 export const validateWebhookService = (client, username, password, authHeader, body) => {
-  // Returns a CallbackResponse with: event, state, merchantOrderId, paymentDetails
   return client.validateCallback(username, password, authHeader, body);
 };

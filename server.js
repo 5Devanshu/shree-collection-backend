@@ -83,6 +83,7 @@ app.use('/api/checkout',   checkoutRoutes);
 app.use('/api/dashboard',  dashboardRoutes);
 app.use('/api/search',     searchRoutes);
 app.use('/api/resellers', resellerRoutes);
+app.use('/api/customers', customerRoutes);
 
 // ── Error Handling ────────────────────────────────────────────────────────────
 app.use(notFound);

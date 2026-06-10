@@ -26,6 +26,7 @@ const Order = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+    resellerId: { type: DataTypes.UUID, allowNull: true, defaultValue: null },
 
     // Contact email — Checkout.jsx Contact Information field
     email: {

@@ -10,6 +10,8 @@ const Reseller = sequelize.define('Reseller', {
   phone:    { type: DataTypes.STRING, defaultValue: '' },
   company:  { type: DataTypes.STRING, defaultValue: '' },  // business name
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+  status:     { type: DataTypes.ENUM('pending', 'verified', 'rejected'), defaultValue: 'pending' },
+  verifiedAt: { type: DataTypes.DATE, defaultValue: null },
 }, { tableName: 'resellers', timestamps: true });
 
 Reseller.beforeCreate(async (r) => {
