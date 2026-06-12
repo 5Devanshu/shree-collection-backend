@@ -353,6 +353,23 @@ const sendShippingNotification = async (order, customerEmail, customerName, trac
   }
 };
 
+export const sendOtpEmail = async (to, name, otp) => {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject: `${otp} is your Shree Collection login code`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;">
+        <h2 style="color:#1a1a1a;">Shree Collection</h2>
+        <p>Hi ${name || 'there'},</p>
+        <p>Your one-time password is:</p>
+        <p style="font-size:32px;letter-spacing:8px;font-weight:bold;color:#b8860b;">${otp}</p>
+        <p>This code is valid for <strong>10 minutes</strong>. Do not share it with anyone.</p>
+        <p style="color:#888;font-size:12px;">If you didn't request this, you can safely ignore this email.</p>
+      </div>`,
+  });
+};
+
 export {
   sendOrderConfirmation,
   sendPaymentConfirmation,

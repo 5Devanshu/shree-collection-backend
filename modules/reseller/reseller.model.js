@@ -12,6 +12,10 @@ const Reseller = sequelize.define('Reseller', {
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
   status:     { type: DataTypes.ENUM('pending', 'verified', 'rejected'), defaultValue: 'pending' },
   verifiedAt: { type: DataTypes.DATE, defaultValue: null },
+  otpHash:      { type: DataTypes.STRING,  allowNull: true, defaultValue: null },
+  otpExpiresAt: { type: DataTypes.DATE,    allowNull: true, defaultValue: null },
+  otpAttempts:  { type: DataTypes.INTEGER, defaultValue: 0 },
+  isVerified:   { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { tableName: 'resellers', timestamps: true });
 
 Reseller.beforeCreate(async (r) => {

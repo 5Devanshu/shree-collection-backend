@@ -20,4 +20,7 @@ router.get('/',            protect, getAllResellers);
 router.patch('/:id/verify', protect, verifyReseller);
 router.patch('/:id/reject', protect, rejectReseller);
 
+router.post('/otp/request', requestOtp);
+router.post('/otp/verify',  verifyOtp);
+
 export default router;

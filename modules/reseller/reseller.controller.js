@@ -1,6 +1,11 @@
 import jwt      from 'jsonwebtoken';
 import Reseller from './reseller.model.js';
 import { sendResellerPendingEmail, sendResellerVerifiedEmail } from '../../services/brevo.service.js';
+import { generateOtp, hashOtp } from '../../utils/otp.js';
+import { sendOtpEmail } from '../../services/email.service.js'
+
+const OTP_TTL_MS      = 10 * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
 
 const generateToken = (id) =>
   jwt.sign({ id, role: 'reseller' }, process.env.JWT_SECRET, {
@@ -17,10 +22,14 @@ export const register = async (req, res, next) => {
     }
 
     const normalizedEmail = String(email).toLowerCase().trim();
-    const existing = await Reseller.findOne({ where: { email: normalizedEmail } });
-    if (existing) {
-      return res.status(409).json({ success: false, message: 'An account with this email already exists' });
-    }
+    const existing = await Reseller.findOne({ where: { email } });
+if (existing) {
+  return res.status(409).json({
+    success: false,
+    exists:  true,
+    message: 'Account already exists. Login with your password or request an OTP.',
+  });
+}
 
     const reseller = await Reseller.create({
       name, email: normalizedEmail, password, phone, company,
@@ -116,5 +125,75 @@ export const rejectReseller = async (req, res, next) => {
 
     await reseller.update({ status: 'rejected' });
     res.status(200).json({ success: true, message: `${reseller.name} marked as rejected.` });
+  } catch (err) { next(err); }
+};
+
+// ── @route  POST /api/resellers/otp/request   { email }
+export const requestOtp = async (req, res, next) => {
+  try {
+    const email = (req.body.email || '').toLowerCase().trim();
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+
+    const reseller = await Reseller.findOne({ where: { email } });
+    if (!reseller)
+      return res.status(404).json({ success: false, message: 'No account found with this email' });
+    if (reseller.isActive === false)
+      return res.status(403).json({ success: false, message: 'Account deactivated. Contact support.' });
+
+    const otp = generateOtp();
+reseller.otpHash      = hashOtp(otp);
+reseller.otpExpiresAt = new Date(Date.now() + OTP_TTL_MS);
+await reseller.save();
+await sendOtpEmail(reseller.email, reseller.name, otp);
+
+return res.status(201).json({
+  success: true,
+  otpRequired: true,
+  message: 'Account created. Enter the OTP sent to your email to verify.',
+});
+  } catch (err) { next(err); }
+};
+
+// ── @route  POST /api/resellers/otp/verify   { email, otp }
+export const verifyOtp = async (req, res, next) => {
+  try {
+    const email = (req.body.email || '').toLowerCase().trim();
+    const { otp } = req.body;
+    if (!email || !otp)
+      return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+
+    const reseller = await Reseller.findOne({ where: { email } });
+    if (!reseller || !reseller.otpHash)
+      return res.status(400).json({ success: false, message: 'No OTP requested. Please request a new one.' });
+
+    if (new Date() > reseller.otpExpiresAt) {
+      reseller.otpHash = null; reseller.otpExpiresAt = null;
+      await reseller.save();
+      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
+    }
+
+    if (reseller.otpAttempts >= MAX_OTP_ATTEMPTS) {
+      reseller.otpHash = null; reseller.otpExpiresAt = null;
+      await reseller.save();
+      return res.status(429).json({ success: false, message: 'Too many attempts. Please request a new OTP.' });
+    }
+
+    if (hashOtp(otp) !== reseller.otpHash) {
+      reseller.otpAttempts += 1;
+      await reseller.save();
+      return res.status(401).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // Success — clear OTP, mark verified, issue same JWT as password login
+    reseller.otpHash = null; reseller.otpExpiresAt = null; reseller.otpAttempts = 0;
+    reseller.isVerified = true;
+    await reseller.save();
+
+    const token = generateResellerToken(reseller.id); // your existing token helper
+    res.status(200).json({
+      success: true,
+      token,
+      reseller: { id: reseller.id, name: reseller.name, email: reseller.email, phone: reseller.phone },
+    });
   } catch (err) { next(err); }
 };
