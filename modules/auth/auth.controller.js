@@ -1,17 +1,33 @@
 import * as authService from './auth.service.js';
 import Customer from '../customer/customer.model.js';
 import Reseller from '../reseller/reseller.model.js';
+import { Op } from 'sequelize';
 
 export const identifyAccount = async (req, res) => {
   try {
-    const email = String(req.body.email || '').toLowerCase().trim();
-    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+    const identifier = String(req.body.identifier || req.body.email || '').trim();
+    if (!identifier) return res.status(400).json({ success: false, message: 'Identifier is required' });
 
-    const reseller = await Reseller.findOne({ where: { email } });
-    if (reseller) return res.status(200).json({ success: true, type: 'reseller', status: reseller.status });
+    const where = {
+      [Op.or]: [
+        { email:    identifier.toLowerCase() },
+        { phone:    identifier },
+        { username: identifier.toLowerCase() },
+      ],
+    };
 
-    const customer = await Customer.findOne({ where: { email } });
-    if (customer) return res.status(200).json({ success: true, type: 'customer' });
+    const reseller = await Reseller.findOne({ where });
+    if (reseller) return res.status(200).json({
+      success: true, type: 'reseller',
+      status:   reseller.status,
+      hasEmail: !!reseller.email,
+    });
+
+    const customer = await Customer.findOne({ where });
+    if (customer) return res.status(200).json({
+      success: true, type: 'customer',
+      hasEmail: !!customer.email,
+    });
 
     return res.status(200).json({ success: true, type: 'none' });
   } catch (error) {

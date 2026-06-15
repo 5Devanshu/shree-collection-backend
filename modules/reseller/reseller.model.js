@@ -3,15 +3,18 @@ import bcrypt from 'bcryptjs';
 import sequelize from '../../config/db.js';
 
 const Reseller = sequelize.define('Reseller', {
-  id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+  id:       { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
   name:     { type: DataTypes.STRING, allowNull: false },
-  email:    { type: DataTypes.STRING, allowNull: false, unique: true },
+  email:    { type: DataTypes.STRING, allowNull: true, unique: true,
+              set(v) { this.setDataValue('email', v ? String(v).toLowerCase().trim() : null); } },
+  phone:    { type: DataTypes.STRING, allowNull: true, unique: true },
+  username: { type: DataTypes.STRING, allowNull: true, unique: true,
+              set(v) { this.setDataValue('username', v ? String(v).toLowerCase().trim() : null); } },
   password: { type: DataTypes.STRING, allowNull: false },
-  phone:    { type: DataTypes.STRING, defaultValue: '' },
-  company:  { type: DataTypes.STRING, defaultValue: '' },  // business name
+  company:  { type: DataTypes.STRING, defaultValue: '' },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
-  status:     { type: DataTypes.ENUM('pending', 'verified', 'rejected'), defaultValue: 'pending' },
-  verifiedAt: { type: DataTypes.DATE, defaultValue: null },
+  status:   { type: DataTypes.ENUM('pending', 'verified', 'rejected'), defaultValue: 'pending' },
+  verifiedAt:   { type: DataTypes.DATE,    defaultValue: null },
   otpHash:      { type: DataTypes.STRING,  allowNull: true, defaultValue: null },
   otpExpiresAt: { type: DataTypes.DATE,    allowNull: true, defaultValue: null },
   otpAttempts:  { type: DataTypes.INTEGER, defaultValue: 0 },
@@ -21,11 +24,9 @@ const Reseller = sequelize.define('Reseller', {
 Reseller.beforeCreate(async (r) => {
   r.password = await bcrypt.hash(r.password, 12);
 });
-
 Reseller.beforeUpdate(async (r) => {
   if (r.changed('password')) r.password = await bcrypt.hash(r.password, 12);
 });
-
 Reseller.prototype.matchPassword = async function (entered) {
   return bcrypt.compare(entered, this.password);
 };
