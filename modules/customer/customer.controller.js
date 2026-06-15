@@ -175,3 +175,54 @@ export const getMe = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ── PATCH /api/customers/me ───────────────────────────────────────────────────
+export const updateMe = async (req, res) => {
+  try {
+    const { name, email, phone, username, address } = req.body;
+    const customer = req.customer;
+
+    // Check uniqueness if changing identifiers
+    const orClauses = [];
+    if (email    && email    !== customer.email)    orClauses.push({ email:    email.toLowerCase().trim() });
+    if (phone    && phone    !== customer.phone)    orClauses.push({ phone });
+    if (username && username !== customer.username) orClauses.push({ username: username.toLowerCase().trim() });
+
+    if (orClauses.length) {
+      const conflict = await Customer.findOne({ where: { [Op.or]: orClauses } });
+      if (conflict) return res.status(409).json({ success: false, message: 'Email, phone, or username already in use.' });
+    }
+
+    await customer.update({
+      ...(name     !== undefined && { name }),
+      ...(email    !== undefined && { email:    email    || null }),
+      ...(phone    !== undefined && { phone:    phone    || null }),
+      ...(username !== undefined && { username: username || null }),
+      ...(address  !== undefined && { address }),
+    });
+
+    res.status(200).json({ success: true, customer: safeCustomer(customer) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ── POST /api/customers/change-password ──────────────────────────────────────
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ success: false, message: 'Both passwords are required' });
+    if (newPassword.length < 6)
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+
+    const customer = req.customer;
+    if (!(await customer.matchPassword(currentPassword)))
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+
+    await customer.update({ password: newPassword });
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
