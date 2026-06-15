@@ -1,27 +1,21 @@
 import { Op } from 'sequelize';
-import Cart from './cart.model.js';
+import Cart    from './cart.model.js';
 import Product from '../product/product.model.js';
 
-// ─── Helper: get or create cart by sessionId ─────────────────────────────────
 const getOrCreateCart = async (sessionId) => {
-  let [cart, created] = await Cart.findOrCreate({
-    where: { sessionId },
+  const [cart] = await Cart.findOrCreate({
+    where:    { sessionId },
     defaults: { sessionId, items: [] },
   });
   return cart;
 };
 
-// ─── Get Cart ─────────────────────────────────────────────────────────────────
-// Returns current cart with all items, subtotal, shipping, total.
-// Used by: Navbar Cart (0) count + Checkout.jsx Order Summary panel
 export const getCartService = async (sessionId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) return { sessionId, items: [], subtotal: 0, shippingCost: 0, total: 0 };
-  return cart;
+  return cart.toJSON();
 };
 
-// ─── Get Cart Count ───────────────────────────────────────────────────────────
-// Lightweight — used by Navbar.jsx "Cart (N)"
 export const getCartCountService = async (sessionId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) return { count: 0 };
@@ -29,8 +23,6 @@ export const getCartCountService = async (sessionId) => {
   return { count };
 };
 
-// ─── Add Item to Cart ─────────────────────────────────────────────────────────
-// Triggered by: ProductCard.jsx + ProductDescription.jsx "Add to Bag" button
 export const addToCartService = async (sessionId, { productId, quantity = 1 }) => {
   const product = await Product.findByPk(productId);
   if (!product) throw new Error('Product not found');
@@ -59,11 +51,9 @@ export const addToCartService = async (sessionId, { productId, quantity = 1 }) =
   cart.items = items;
   Cart.recalculate(cart);
   await cart.save();
-  return cart;
+  return cart.toJSON();
 };
 
-// ─── Update Item Quantity ─────────────────────────────────────────────────────
-// Triggered by quantity +/- controls in cart UI
 export const updateCartItemService = async (sessionId, productId, quantity) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
@@ -81,10 +71,9 @@ export const updateCartItemService = async (sessionId, productId, quantity) => {
   cart.items = items;
   Cart.recalculate(cart);
   await cart.save();
-  return cart;
+  return cart.toJSON();
 };
 
-// ─── Remove Item from Cart ────────────────────────────────────────────────────
 export const removeFromCartService = async (sessionId, productId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
@@ -92,11 +81,9 @@ export const removeFromCartService = async (sessionId, productId) => {
   cart.items = (cart.items || []).filter((i) => i.productId !== productId);
   Cart.recalculate(cart);
   await cart.save();
-  return cart;
+  return cart.toJSON();
 };
 
-// ─── Clear Cart ───────────────────────────────────────────────────────────────
-// Called after successful checkout confirm
 export const clearCartService = async (sessionId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) return { message: 'Cart already empty' };
