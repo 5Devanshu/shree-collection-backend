@@ -5,6 +5,11 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
+    // Accept comma-separated string or array
+    const recipients = Array.isArray(to)
+      ? to.map(email => ({ email }))
+      : String(to).split(',').map(e => ({ email: e.trim() })).filter(e => e.email);
+
     const res = await fetch(BREVO_URL, {
       method: 'POST',
       headers: {
@@ -14,7 +19,7 @@ const sendEmail = async ({ to, subject, html }) => {
       },
       body: JSON.stringify({
         sender:      { name: process.env.MAIL_FROM_NAME || 'Shree Collection', email: process.env.MAIL_FROM_EMAIL },
-        to:          [{ email: to }],
+        to:          recipients,
         subject,
         htmlContent: html,
       }),
@@ -28,7 +33,7 @@ const sendEmail = async ({ to, subject, html }) => {
     return true;
   } catch (err) {
     console.error('Brevo send failed:', err.message);
-    return false;  // never let email failure break the main flow
+    return false;
   }
 };
 
@@ -113,4 +118,26 @@ export const sendLowStockAlert = (product) =>
       <p><strong>${product.title}</strong> is running low.</p>
       <p>Remaining stock: <strong>${product.stock}</strong> · Status: ${product.stockStatus}</p>
       <p><a href="https://shreecollection.co.in/admin/products">Open Admin → Products</a></p>`),
+  });
+
+  // ── New reseller application alert to admin ───────────────────────────────────
+export const sendResellerApplicationAlert = (reseller) =>
+  sendEmail({
+    to: [
+      process.env.ADMIN_ALERT_EMAIL,
+      process.env.ADMIN_ALERT_EMAIL_2,
+    ].filter(Boolean),
+    subject: `New reseller application — ${reseller.name}`,
+    html: shell('New Reseller Application', `
+      <p>A new reseller has applied for an account.</p>
+      <p><strong>Name:</strong> ${reseller.name}</p>
+      <p><strong>Email:</strong> ${reseller.email}</p>
+      <p><strong>Phone:</strong> ${reseller.phone || '—'}</p>
+      <p><strong>Company:</strong> ${reseller.company || '—'}</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="https://shreecollection.co.in/admin/resellers"
+           style="background:#735c00;color:#fff;padding:14px 36px;
+                  text-decoration:none;border-radius:4px;font-size:14px">
+          Review Application</a>
+      </p>`),
   });
