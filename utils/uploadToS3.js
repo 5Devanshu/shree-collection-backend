@@ -14,14 +14,16 @@ export const uploadToS3 = async (fileBuffer, mimetype, folder = 'general') => {
     ContentType: mimetype,
   }));
 
-  // Store the key — generate presigned URL on the fly when serving
-  return { key, url: key }; // store key as url for now
+  // Store proxy URL — served through our own backend
+  const backendUrl = process.env.BACKEND_URL || 'https://shree-collection-backend-production.up.railway.app';
+  const url = `${backendUrl}/api/media/file/${encodeURIComponent(key)}`;
+
+  return { key, url };
 };
 
-// Generate a presigned URL valid for 7 days
-export const getPresignedUrl = async (key, expiresInSeconds = 604800) => {
+export const getPresignedUrl = async (key, expiresIn = 3600) => {
   const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
-  return getSignedUrl(s3, command, { expiresIn: expiresInSeconds });
+  return getSignedUrl(s3, command, { expiresIn });
 };
 
 export const deleteFromS3 = async (key) => {

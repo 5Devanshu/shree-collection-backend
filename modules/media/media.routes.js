@@ -54,4 +54,7 @@ router.patch('/:id', protect, updateMedia);
 // Delete image from Railway Bucket + DB + clears product reference
 router.delete('/:id', protect, deleteMedia);
 
+// Add BEFORE the protected routes and BEFORE /:id
+router.get('/file/:key(*)', serveFile);
+
 export default router;

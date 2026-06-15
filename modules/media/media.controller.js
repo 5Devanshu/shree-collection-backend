@@ -111,3 +111,23 @@ export const deleteMedia = async (req, res) => {
     res.status(404).json({ success: false, message: error.message });
   }
 };
+
+// Add this new handler — GET /api/media/file/:key
+export const serveFile = async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+    const s3Module = await import('../../config/storage.js');
+    const s3 = s3Module.default;
+    const BUCKET_NAME = s3Module.BUCKET_NAME;
+
+    const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+
+    // Redirect to presigned URL — browser fetches directly from S3
+    res.redirect(302, signedUrl);
+  } catch (error) {
+    res.status(404).json({ success: false, message: 'File not found' });
+  }
+};

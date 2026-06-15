@@ -7,9 +7,8 @@ const s3 = new S3Client({
     accessKeyId:     process.env.RAILWAY_BUCKET_ACCESS_KEY_ID,
     secretAccessKey: process.env.RAILWAY_BUCKET_SECRET_ACCESS_KEY,
   },
-  forcePathStyle: false, // virtual-hosted style required by Railway
+  forcePathStyle: true,
 });
 
 export const BUCKET_NAME = process.env.RAILWAY_BUCKET_NAME;
-
 export default s3;
