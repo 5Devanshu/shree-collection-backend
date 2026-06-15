@@ -1,12 +1,13 @@
 import jwt      from 'jsonwebtoken';
+import { Op }   from 'sequelize';
 import Reseller from './reseller.model.js';
 import {
   sendResellerPendingEmail,
   sendResellerVerifiedEmail,
   sendResellerApplicationAlert,
+  sendOtpEmail,
 } from '../../services/brevo.service.js';
 import { generateOtp, hashOtp } from '../../utils/otp.js';
-import { sendOtpEmail }         from '../../services/brevo.service.js';
 
 const OTP_TTL_MS       = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
@@ -26,6 +27,18 @@ const statusGate = (reseller) => {
     return { httpStatus: 403, body: { success: false, code: 'REJECTED',
       message: 'Your reseller application was not approved. Contact us for details.' } };
   return null;
+};
+
+// Build a WHERE clause that matches email OR phone OR username
+const identifierWhere = (identifier) => {
+  const val = String(identifier || '').trim();
+  return {
+    [Op.or]: [
+      { email:    val.toLowerCase() },
+      { phone:    val },
+      { username: val.toLowerCase() },
+    ],
+  };
 };
 
 // ── POST /api/resellers/register ─────────────────────────────────────────────
@@ -48,10 +61,7 @@ export const register = async (req, res, next) => {
       status: 'pending',
     });
 
-    // Email to reseller — application received
     await sendResellerPendingEmail(reseller.email, reseller.name);
-
-    // Email to admin — new application alert with Review button
     await sendResellerApplicationAlert(reseller);
 
     res.status(201).json({
@@ -64,13 +74,15 @@ export const register = async (req, res, next) => {
 // ── POST /api/resellers/login ─────────────────────────────────────────────────
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password)
+    const { identifier, email, password } = req.body;
+    const lookup = identifier || email;
+
+    if (!lookup || !password)
       return res.status(400).json({ success: false, message: 'Email and password are required' });
 
-    const reseller = await Reseller.findOne({ where: { email: String(email).toLowerCase().trim() } });
+    const reseller = await Reseller.findOne({ where: identifierWhere(lookup) });
     if (!reseller || !(await reseller.matchPassword(password)))
-      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
     const gate = statusGate(reseller);
     if (gate) return res.status(gate.httpStatus).json(gate.body);
@@ -87,15 +99,20 @@ export const login = async (req, res, next) => {
 // ── POST /api/resellers/otp/request ──────────────────────────────────────────
 export const requestOtp = async (req, res, next) => {
   try {
-    const email = (req.body.email || '').toLowerCase().trim();
-    if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+    const { identifier, email } = req.body;
+    const lookup = (identifier || email || '').trim();
+    if (!lookup)
+      return res.status(400).json({ success: false, message: 'Email is required' });
 
-    const reseller = await Reseller.findOne({ where: { email } });
+    const reseller = await Reseller.findOne({ where: identifierWhere(lookup) });
     if (!reseller)
-      return res.status(404).json({ success: false, message: 'No account found with this email' });
+      return res.status(404).json({ success: false, message: 'No account found' });
 
     const gate = statusGate(reseller);
     if (gate) return res.status(gate.httpStatus).json(gate.body);
+
+    if (!reseller.email)
+      return res.status(400).json({ success: false, message: 'This account has no email — please log in with your password.' });
 
     const otp = generateOtp();
     reseller.otpHash      = hashOtp(otp);
@@ -112,12 +129,12 @@ export const requestOtp = async (req, res, next) => {
 // ── POST /api/resellers/otp/verify ───────────────────────────────────────────
 export const verifyOtp = async (req, res, next) => {
   try {
-    const email = (req.body.email || '').toLowerCase().trim();
-    const { otp } = req.body;
-    if (!email || !otp)
+    const { identifier, email, otp } = req.body;
+    const lookup = (identifier || email || '').trim();
+    if (!lookup || !otp)
       return res.status(400).json({ success: false, message: 'Email and OTP are required' });
 
-    const reseller = await Reseller.findOne({ where: { email } });
+    const reseller = await Reseller.findOne({ where: identifierWhere(lookup) });
     if (!reseller || !reseller.otpHash)
       return res.status(400).json({ success: false, message: 'No OTP requested. Please request a new one.' });
 
@@ -157,7 +174,9 @@ export const verifyOtp = async (req, res, next) => {
 // ── GET /api/resellers/me ─────────────────────────────────────────────────────
 export const getMe = async (req, res, next) => {
   try {
-    const reseller = await Reseller.findByPk(req.reseller.id, { attributes: { exclude: ['password'] } });
+    const reseller = await Reseller.findByPk(req.reseller.id, {
+      attributes: { exclude: ['password'] },
+    });
     res.status(200).json({ success: true, data: reseller });
   } catch (err) { next(err); }
 };
@@ -180,12 +199,16 @@ export const getAllResellers = async (req, res, next) => {
 export const verifyReseller = async (req, res, next) => {
   try {
     const reseller = await Reseller.findByPk(req.params.id);
-    if (!reseller) return res.status(404).json({ success: false, message: 'Reseller not found' });
+    if (!reseller)
+      return res.status(404).json({ success: false, message: 'Reseller not found' });
 
     await reseller.update({ status: 'verified', verifiedAt: new Date() });
     await sendResellerVerifiedEmail(reseller.email, reseller.name);
 
-    res.status(200).json({ success: true, message: `${reseller.name} verified — notification email sent.` });
+    res.status(200).json({
+      success: true,
+      message: `${reseller.name} verified — notification email sent.`,
+    });
   } catch (err) { next(err); }
 };
 
@@ -193,9 +216,13 @@ export const verifyReseller = async (req, res, next) => {
 export const rejectReseller = async (req, res, next) => {
   try {
     const reseller = await Reseller.findByPk(req.params.id);
-    if (!reseller) return res.status(404).json({ success: false, message: 'Reseller not found' });
+    if (!reseller)
+      return res.status(404).json({ success: false, message: 'Reseller not found' });
 
     await reseller.update({ status: 'rejected' });
-    res.status(200).json({ success: true, message: `${reseller.name} marked as rejected.` });
+    res.status(200).json({
+      success: true,
+      message: `${reseller.name} marked as rejected.`,
+    });
   } catch (err) { next(err); }
 };
