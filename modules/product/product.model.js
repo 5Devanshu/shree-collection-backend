@@ -97,6 +97,11 @@ const Product = sequelize.define(
       type: DataTypes.JSONB,
       defaultValue: [],
     },
+    // Add these inside the model definition, after `sizes`:
+    colour:    { type: DataTypes.STRING, defaultValue: '' },
+    plating:   { type: DataTypes.STRING, defaultValue: '' },
+    stoneType: { type: DataTypes.STRING, defaultValue: '' },
+    sku:       { type: DataTypes.STRING, defaultValue: '' },
 
     delivery: {
       type: DataTypes.STRING,
