@@ -2,9 +2,37 @@ import { Op } from 'sequelize';
 import Product  from './product.model.js';
 import Category from '../category/category.model.js';
 
+// ─── Normalize incoming data from frontend ────────────────────────────────────
+const normalizeProductData = (data) => {
+  const d = { ...data };
+
+  // Frontend sends image as { url, key } object or flat string → map to imageUrl
+  if (d.image !== undefined) {
+    if (typeof d.image === 'object' && d.image?.url) {
+      d.imageUrl = d.image.url;
+      d.imageKey = d.image.key || '';
+    } else if (typeof d.image === 'string' && d.image) {
+      d.imageUrl = d.image;
+    }
+    delete d.image;
+  }
+
+  // Frontend sends category UUID as `category` → map to categoryId
+  if (d.category && !d.categoryId) {
+    d.categoryId = d.category;
+    delete d.category;
+  }
+
+  // Auto-derive stockStatus from stock count if not explicitly provided
+  if (d.stock !== undefined && d.stockStatus === undefined) {
+    const s = Number(d.stock);
+    d.stockStatus = s === 0 ? 'out_of_stock' : s <= 5 ? 'low_stock' : 'in_stock';
+  }
+
+  return d;
+};
+
 // ─── Helper: apply reseller or retail display price ───────────────────────────
-// isReseller = true  → show resellerPrice (if set), else fall back to retail
-// isReseller = false → show discountedPrice if discount active, else price
 const applyDisplayPrice = (productJson, isReseller) => {
   if (isReseller && productJson.resellerPrice > 0) {
     productJson.displayPrice    = parseFloat(productJson.resellerPrice);
@@ -18,9 +46,13 @@ const applyDisplayPrice = (productJson, isReseller) => {
   return productJson;
 };
 
+const CATEGORY_INCLUDE = [{
+  model:      Category,
+  as:         'category',
+  attributes: ['id', 'name', 'slug'],
+}];
+
 // ─── Get All Products ─────────────────────────────────────────────────────────
-// Used by: AdminProducts table, homepage fallback, general product listing
-// Supports: pagination, categoryId filter, stockStatus filter
 export const getAllProductsService = async (
   { page = 1, limit = 20, category, stockStatus, search } = {},
   isReseller = false
@@ -28,114 +60,68 @@ export const getAllProductsService = async (
   const where = {};
   if (category)    where.categoryId  = category;
   if (stockStatus) where.stockStatus = stockStatus;
-
-  // Basic title search (used by AdminProducts search bar)
-  if (search) {
-    where.title = { [Op.iLike]: `%${search}%` };
-  }
+  if (search)      where.title       = { [Op.iLike]: `%${search}%` };
 
   const skip = (Number(page) - 1) * Number(limit);
 
   const { rows, count: total } = await Product.findAndCountAll({
     where,
-    include: [{
-      model:      Category,
-      as:         'category',
-      attributes: ['id', 'name', 'slug'],
-    }],
-    order:  [['createdAt', 'DESC']],
-    offset: skip,
-    limit:  Number(limit),
+    include: CATEGORY_INCLUDE,
+    order:   [['createdAt', 'DESC']],
+    offset:  skip,
+    limit:   Number(limit),
   });
 
   const products = rows.map((p) => applyDisplayPrice(p.toJSON(), isReseller));
-
   return { products, total, page: Number(page), limit: Number(limit) };
 };
 
 // ─── Get Featured Products ────────────────────────────────────────────────────
-// Used by: FeaturedGrid on homepage
 export const getFeaturedProductsService = async (isReseller = false) => {
   const rows = await Product.findAll({
-    where: {
-      isFeatured:  true,
-      stockStatus: { [Op.ne]: 'out_of_stock' },
-    },
-    include: [{
-      model:      Category,
-      as:         'category',
-      attributes: ['id', 'name', 'slug'],
-    }],
-    order: [['createdAt', 'DESC']],
-    limit: 8,
+    where:   { isFeatured: true, stockStatus: { [Op.ne]: 'out_of_stock' } },
+    include: CATEGORY_INCLUDE,
+    order:   [['createdAt', 'DESC']],
+    limit:   8,
   });
-
   return rows.map((p) => applyDisplayPrice(p.toJSON(), isReseller));
 };
 
 // ─── Get Products by Category Slug ───────────────────────────────────────────
-// Used by: CategoryPage — /collections/:slug
 export const getProductsByCategoryService = async (slug, isReseller = false) => {
   const category = await Category.findOne({ where: { slug } });
   if (!category) return [];
 
   const rows = await Product.findAll({
-    where: {
-      categoryId:  category.id,
-      stockStatus: { [Op.ne]: 'out_of_stock' },
-    },
-    include: [{
-      model:      Category,
-      as:         'category',
-      attributes: ['id', 'name', 'slug'],
-    }],
-    order: [['createdAt', 'DESC']],
+    where:   { categoryId: category.id, stockStatus: { [Op.ne]: 'out_of_stock' } },
+    include: CATEGORY_INCLUDE,
+    order:   [['createdAt', 'DESC']],
   });
-
   return rows.map((p) => applyDisplayPrice(p.toJSON(), isReseller));
 };
 
 // ─── Get Single Product by ID ─────────────────────────────────────────────────
-// Used by: ProductDescription — /product/:id
 export const getProductByIdService = async (id, isReseller = false) => {
-  const product = await Product.findByPk(id, {
-    include: [{
-      model:      Category,
-      as:         'category',
-      attributes: ['id', 'name', 'slug'],
-    }],
-  });
+  const product = await Product.findByPk(id, { include: CATEGORY_INCLUDE });
   if (!product) throw new Error('Product not found');
-
   return applyDisplayPrice(product.toJSON(), isReseller);
 };
 
 // ─── Create Product ───────────────────────────────────────────────────────────
-// Used by: AdminProducts "+ Add Product"
-// Expects body to include: title, price, categoryId, stockStatus, imageUrl, imageKey, etc.
 export const createProductService = async (data) => {
-  const product = await Product.create(data);
-  // Reload with category association
-  return product.reload({
-    include: [{ model: Category, as: 'category', attributes: ['id', 'name', 'slug'] }],
-  });
+  const product = await Product.create(normalizeProductData(data));
+  return product.reload({ include: CATEGORY_INCLUDE });
 };
 
 // ─── Update Product ───────────────────────────────────────────────────────────
-// Used by: AdminProducts "Edit"
 export const updateProductService = async (id, data) => {
   const product = await Product.findByPk(id);
   if (!product) throw new Error('Product not found');
-
-  await product.update(data);
-
-  return product.reload({
-    include: [{ model: Category, as: 'category', attributes: ['id', 'name', 'slug'] }],
-  });
+  await product.update(normalizeProductData(data));
+  return product.reload({ include: CATEGORY_INCLUDE });
 };
 
 // ─── Delete Product ───────────────────────────────────────────────────────────
-// Used by: AdminProducts "Delete"
 export const deleteProductService = async (id) => {
   const product = await Product.findByPk(id);
   if (!product) throw new Error('Product not found');
@@ -144,7 +130,6 @@ export const deleteProductService = async (id) => {
 };
 
 // ─── Toggle Featured ──────────────────────────────────────────────────────────
-// Used by: AdminProducts featured toggle switch
 export const toggleFeaturedService = async (id) => {
   const product = await Product.findByPk(id);
   if (!product) throw new Error('Product not found');
@@ -153,7 +138,6 @@ export const toggleFeaturedService = async (id) => {
 };
 
 // ─── Update Stock ─────────────────────────────────────────────────────────────
-// Used by: AdminProducts stock status dropdown
 export const updateStockService = async (id, { stock, stockStatus }) => {
   const product = await Product.findByPk(id);
   if (!product) throw new Error('Product not found');
@@ -162,11 +146,9 @@ export const updateStockService = async (id, { stock, stockStatus }) => {
   if (stock       !== undefined) updates.stock       = stock;
   if (stockStatus !== undefined) updates.stockStatus = stockStatus;
 
-  // Auto-derive stockStatus from stock count if not explicitly provided
   if (stock !== undefined && stockStatus === undefined) {
-    if (stock === 0)     updates.stockStatus = 'out_of_stock';
-    else if (stock <= 5) updates.stockStatus = 'low_stock';
-    else                 updates.stockStatus = 'in_stock';
+    const s = Number(stock);
+    updates.stockStatus = s === 0 ? 'out_of_stock' : s <= 5 ? 'low_stock' : 'in_stock';
   }
 
   await product.update(updates);
@@ -174,15 +156,11 @@ export const updateStockService = async (id, { stock, stockStatus }) => {
 };
 
 // ─── Get Products In Stock Count ──────────────────────────────────────────────
-// Used by: AdminDashboard "Products In Stock" stat card
 export const getProductsInStockCountService = async () => {
-  return Product.count({
-    where: { stockStatus: { [Op.ne]: 'out_of_stock' } },
-  });
+  return Product.count({ where: { stockStatus: { [Op.ne]: 'out_of_stock' } } });
 };
 
 // ─── Get Related Products ─────────────────────────────────────────────────────
-// Used by: ProductDescription "You may also like" section
 export const getRelatedProductsService = async (productId, isReseller = false) => {
   const product = await Product.findByPk(productId);
   if (!product) throw new Error('Product not found');
@@ -193,13 +171,8 @@ export const getRelatedProductsService = async (productId, isReseller = false) =
       id:          { [Op.ne]: productId },
       stockStatus: { [Op.ne]: 'out_of_stock' },
     },
-    include: [{
-      model:      Category,
-      as:         'category',
-      attributes: ['id', 'name', 'slug'],
-    }],
-    limit: 4,
+    include: CATEGORY_INCLUDE,
+    limit:   4,
   });
-
   return rows.map((p) => applyDisplayPrice(p.toJSON(), isReseller));
 };
