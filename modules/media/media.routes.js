@@ -1,60 +1,35 @@
 import express from 'express';
 import multer  from 'multer';
 import {
-  uploadImage,
-  uploadMultipleImages,
-  getAllMedia,
-  getMediaById,
-  getOptimisedUrl,
-  updateMedia,
-  deleteMedia,
+  uploadImage, uploadMultipleImages, getAllMedia,
+  getMediaById, getOptimisedUrl, updateMedia, deleteMedia,
+  serveFile,
 } from './media.controller.js';
 import protect from '../auth/auth.middleware.js';
 
 const router = express.Router();
 
-// Multer — stores uploads in memory buffer before sending to Railway Bucket
-// Accepts: jpg, jpeg, png, webp — matches product image formats used across the store
 const storage = multer.memoryStorage();
 const fileFilter = (req, file, cb) => {
   const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-  if (allowed.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only JPG, PNG, and WebP images are allowed'), false);
-  }
+  if (allowed.includes(file.mimetype)) cb(null, true);
+  else cb(new Error('Only JPG, PNG, and WebP images are allowed'), false);
 };
 const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max per file
+  storage, fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-// ─── All Media Routes are Admin Protected ─────────────────────────────────────
-
-// AdminProducts — single product image upload
-router.post('/upload', protect, upload.single('image'), uploadImage);
-
-// AdminPanel Media Library — bulk upload
-router.post('/upload-multiple', protect, upload.array('images', 20), uploadMultipleImages);
-
-// Optimised URL for specific rendering context (product/detail/thumbnail/hero)
-// ⚠️ Must stay above /:id — otherwise Express matches 'optimised-url' as the id param
-router.get('/optimised-url', protect, getOptimisedUrl);
-
-// AdminPanel Media Library — paginated browser with folder filter
-router.get('/', protect, getAllMedia);
-
-// Single media item — AdminProducts image edit prefill
-router.get('/:id', protect, getMediaById);
-
-// Update alt text / folder / attached product
-router.patch('/:id', protect, updateMedia);
-
-// Delete image from Railway Bucket + DB + clears product reference
-router.delete('/:id', protect, deleteMedia);
-
-// Add BEFORE the protected routes and BEFORE /:id
+// ── PUBLIC — no auth, must be FIRST ──────────────────────────────────────────
 router.get('/file/:key(*)', serveFile);
+
+// ── ADMIN PROTECTED ───────────────────────────────────────────────────────────
+router.post('/upload',          protect, upload.single('image'),       uploadImage);
+router.post('/upload-multiple', protect, upload.array('images', 20),   uploadMultipleImages);
+router.get('/optimised-url',    protect, getOptimisedUrl);
+router.get('/',                 protect, getAllMedia);
+router.get('/:id',              protect, getMediaById);
+router.patch('/:id',            protect, updateMedia);
+router.delete('/:id',           protect, deleteMedia);
 
 export default router;
