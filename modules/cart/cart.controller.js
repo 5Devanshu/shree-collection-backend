@@ -37,7 +37,13 @@ export const getCartCount = async (req, res) => {
 export const addToCart = async (req, res) => {
   try {
     const sessionId  = getSessionId(req);
-    const isReseller = req.reseller != null;   // set by auth middleware if reseller token
+    const isReseller = req.reseller != null;
+
+    console.log('CART ADD DEBUG:', {
+      isReseller,
+      reseller: req.reseller,
+      authHeader: req.headers.authorization?.slice(0, 30),
+    });
 
     const cart = await cartService.addToCartService(sessionId, req.body, isReseller);
     const count = cart.items.reduce((sum, i) => sum + i.quantity, 0);
