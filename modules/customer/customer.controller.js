@@ -6,7 +6,7 @@ import { sendOtpEmail } from '../../services/brevo.service.js';
 
 const hashOtp  = (otp) => crypto.createHash('sha256').update(String(otp)).digest('hex');
 const signToken = (customer) =>
-  jwt.sign({ id: customer.id, type: 'customer' }, process.env.JWT_SECRET, { expiresIn: '30d' });
+  jwt.sign({ id: customer.id, role: 'customer', name: customer.name }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
 // Build a WHERE clause that matches email OR phone OR username
 const identifierWhere = (identifier) => {
