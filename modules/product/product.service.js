@@ -109,7 +109,19 @@ export const getProductByIdService = async (id, isReseller = false) => {
 
 // ─── Create Product ───────────────────────────────────────────────────────────
 export const createProductService = async (data) => {
-  const product = await Product.create(normalizeProductData(data));
+  const normalized = normalizeProductData(data);
+
+  const percent = normalized.discountPercent || 0;
+  const enabled = normalized.discountEnabled || false;
+  const price   = normalized.price || 0;
+
+  if (enabled && percent > 0) {
+    normalized.discountedPrice = parseFloat(
+      (Number(price) - (Number(price) * Number(percent)) / 100).toFixed(2)
+    );
+  }
+
+  const product = await Product.create(normalized);
   return product.reload({ include: CATEGORY_INCLUDE });
 };
 
@@ -117,7 +129,23 @@ export const createProductService = async (data) => {
 export const updateProductService = async (id, data) => {
   const product = await Product.findByPk(id);
   if (!product) throw new Error('Product not found');
-  await product.update(normalizeProductData(data));
+
+  const normalized = normalizeProductData(data);
+
+  // Auto-calculate discountedPrice when discountPercent changes
+  const percent = normalized.discountPercent ?? product.discountPercent;
+  const enabled = normalized.discountEnabled ?? product.discountEnabled;
+  const price   = normalized.price ?? product.price;
+
+  if (enabled && percent > 0) {
+    normalized.discountedPrice = parseFloat(
+      (Number(price) - (Number(price) * Number(percent)) / 100).toFixed(2)
+    );
+  } else {
+    normalized.discountedPrice = Number(price);
+  }
+
+  await product.update(normalized);
   return product.reload({ include: CATEGORY_INCLUDE });
 };
 
