@@ -12,11 +12,10 @@ import { generateOtp, hashOtp } from '../../utils/otp.js';
 const OTP_TTL_MS       = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 
-const generateToken = (id) =>
-  jwt.sign({ id, role: 'reseller' }, process.env.JWT_SECRET, {
+const generateToken = (id, name) =>
+  jwt.sign({ id, role: 'reseller', name }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
-
 const statusGate = (reseller) => {
   if (!reseller.isActive)
     return { httpStatus: 403, body: { success: false, message: 'Account deactivated. Contact admin.' } };
@@ -87,7 +86,7 @@ export const login = async (req, res, next) => {
     const gate = statusGate(reseller);
     if (gate) return res.status(gate.httpStatus).json(gate.body);
 
-    const token = generateToken(reseller.id);
+    const token = generateToken(reseller.id, reseller.name); 
     res.status(200).json({
       success: true, token,
       reseller: { id: reseller.id, name: reseller.name, email: reseller.email,
@@ -162,7 +161,7 @@ export const verifyOtp = async (req, res, next) => {
     reseller.otpHash = null; reseller.otpExpiresAt = null; reseller.otpAttempts = 0;
     await reseller.save();
 
-    const token = generateToken(reseller.id);
+    const token = generateToken(reseller.id, reseller.name);
     res.status(200).json({
       success: true, token,
       reseller: { id: reseller.id, name: reseller.name, email: reseller.email,
