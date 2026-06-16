@@ -15,11 +15,11 @@ const getPhonePeClient = () => {
   if (!phonePeClient) {
     const env = process.env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
  phonePeClient = StandardCheckoutClient.getInstance(
-  process.env.PHONEPE_APP_ID,         // ← use App ID instead
+  process.env.PHONEPE_APP_ID,
   process.env.PHONEPE_CLIENT_SECRET,
-      Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
-      env
-    );
+  Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
+  env
+);
   }
   return phonePeClient;
 };
