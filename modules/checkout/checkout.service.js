@@ -142,14 +142,14 @@ export const confirmOrderService = async ({
   });
 
   await decrementStockForItems(validatedItems);
-  
+
   if (customerId) {
   await Cart.destroy({ where: { customerId } });
 } else if (resellerId) {
   await Cart.destroy({ where: { resellerId } });
 }
 
-  const name = `${shippingAddress?.firstName || ''} ${shippingAddress?.lastName || ''}`.trim() || 'Customer';
+  const name = shippingAddress?.name || 'Customer';
   await sendOrderConfirmationEmail(order.email, {
     orderNumber: order.orderNumber,
     name,
