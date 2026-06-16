@@ -35,7 +35,7 @@ const issueOtp = async (customer) => {
     otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
     otpAttempts:  0,
   });
-  await sendOtpEmail(customer.email, customer.name, otp);
+  await sendOtpEmail(customer.email, otp);
 };
 
 // ── POST /api/customers/register ─────────────────────────────────────────────
