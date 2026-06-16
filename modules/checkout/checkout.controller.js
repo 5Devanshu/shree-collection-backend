@@ -14,12 +14,12 @@ import {
 // Helper — get the singleton PhonePe client (same instance as service)
 const getClient = () => {
   const env = process.env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
-return StandardCheckoutClient.getInstance(
-  process.env.PHONEPE_APP_ID,
-  process.env.PHONEPE_CLIENT_SECRET,
-  Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
-  env
-);
+  return StandardCheckoutClient.getInstance(
+    process.env.PHONEPE_CLIENT_ID,
+    process.env.PHONEPE_CLIENT_SECRET,
+    Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
+    env
+  );
 };
 
 // ─── POST /api/checkout/initiate ─────────────────────────────────────────────
