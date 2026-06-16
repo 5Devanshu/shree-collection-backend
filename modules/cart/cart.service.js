@@ -23,12 +23,23 @@ export const getCartCountService = async (sessionId) => {
   return { count };
 };
 
-export const addToCartService = async (sessionId, { productId, quantity = 1 }) => {
+export const addToCartService = async (sessionId, { productId, quantity = 1 }, isReseller = false) => {
   const product = await Product.findByPk(productId);
   if (!product) throw new Error('Product not found');
   if (product.stockStatus === 'out_of_stock') {
     throw new Error(`"${product.title}" is out of stock`);
   }
+
+  // Resolve correct price — reseller beats discount beats retail
+  const resellerPrice  = parseFloat(product.resellerPrice)  || 0;
+  const discountedPrice = parseFloat(product.discountedPrice) || 0;
+  const retailPrice    = parseFloat(product.price)           || 0;
+
+  const resolvedPrice = isReseller && resellerPrice > 0
+    ? resellerPrice
+    : product.discountEnabled && discountedPrice > 0
+      ? discountedPrice
+      : retailPrice;
 
   const cart  = await getOrCreateCart(sessionId);
   const items = [...(cart.items || [])];
@@ -37,12 +48,13 @@ export const addToCartService = async (sessionId, { productId, quantity = 1 }) =
 
   if (existingIndex > -1) {
     items[existingIndex].quantity += quantity;
+    items[existingIndex].price = resolvedPrice;   // update price if role changed
   } else {
     items.push({
       productId,
       title:    product.title,
       material: product.material || '',
-      price:    parseFloat(product.price),
+      price:    resolvedPrice,                    // ← resolved price
       image:    product.imageUrl || '',
       quantity,
     });

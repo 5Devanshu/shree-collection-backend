@@ -36,10 +36,10 @@ export const getCartCount = async (req, res) => {
 // Triggered by: "Add to Bag" button on ProductCard & ProductDescription
 export const addToCart = async (req, res) => {
   try {
-    const sessionId = getSessionId(req);
-    const cart = await cartService.addToCartService(sessionId, req.body);
+    const sessionId  = getSessionId(req);
+    const isReseller = req.reseller != null;   // set by auth middleware if reseller token
 
-    // Return updated item count alongside cart — Navbar uses count to update "Cart (N)"
+    const cart = await cartService.addToCartService(sessionId, req.body, isReseller);
     const count = cart.items.reduce((sum, i) => sum + i.quantity, 0);
     res.status(200).json({ success: true, cart, count });
   } catch (error) {
