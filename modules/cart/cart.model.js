@@ -61,7 +61,8 @@ const Cart = sequelize.define(
 // Called in cart.service.js before every save
 Cart.recalculate = (cart) => {
   const items = cart.items || [];
-  cart.subtotal     = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const subtotal    = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  cart.subtotal     = Math.round(subtotal * 100) / 100;
   cart.shippingCost = 0;
   cart.total        = cart.subtotal;
   cart.expiresAt    = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);

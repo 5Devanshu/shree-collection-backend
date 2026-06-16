@@ -37,7 +37,7 @@ export const initiateCheckout = async (req, res) => {
     });
     
     // Step 1 — Validate cart items server-side
-    const validatedItems = await validateCartService(items);
+    const validatedItems = await validateCartService(items, isReseller);
 
     // Step 2 — Calculate totals
     const { subtotal, shippingCost, total } = calculateTotalsService(validatedItems);
