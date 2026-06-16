@@ -10,8 +10,8 @@ const optionalAuth = (req, res, next) => {
     const token = header.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 console.log('OPTIONAL AUTH DECODED:', decoded); // ← add this
-    if (decoded.type === 'reseller') req.reseller = decoded;
-    if (decoded.type === 'customer') req.customer = decoded;
+if (decoded.role === 'reseller') req.reseller = decoded;
+if (decoded.role === 'customer') req.customer = decoded;
   } catch {
     // Invalid/expired token — treat as guest, don't block
   }
