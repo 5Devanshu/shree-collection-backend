@@ -19,6 +19,7 @@ import searchRoutes    from './modules/search/search.routes.js';
 import customerRoutes  from './modules/customer/customer.routes.js';
 
 import resellerRoutes from './modules/reseller/reseller.routes.js';
+import reviewRoutes from './modules/review/review.routes.js';
 // ── Sequelize Model Associations ──────────────────────────────────────────────
 // Must be imported before connectDB() so all associations are registered
 // before sequelize.sync() runs and creates foreign key columns
@@ -84,6 +85,7 @@ app.use('/api/dashboard',  dashboardRoutes);
 app.use('/api/search',     searchRoutes);
 app.use('/api/resellers', resellerRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // ── Error Handling ────────────────────────────────────────────────────────────
 app.use(notFound);
