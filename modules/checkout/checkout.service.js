@@ -7,6 +7,7 @@ import Order   from '../order/order.model.js';
 import Product from '../product/product.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
+import Cart from '../cart/cart.model.js';
 
 // ─── PhonePe Client (singleton) ───────────────────────────────────────────────
 let phonePeClient;
@@ -141,6 +142,12 @@ export const confirmOrderService = async ({
   });
 
   await decrementStockForItems(validatedItems);
+  
+  if (customerId) {
+  await Cart.destroy({ where: { customerId } });
+} else if (resellerId) {
+  await Cart.destroy({ where: { resellerId } });
+}
 
   const name = `${shippingAddress?.firstName || ''} ${shippingAddress?.lastName || ''}`.trim() || 'Customer';
   await sendOrderConfirmationEmail(order.email, {
