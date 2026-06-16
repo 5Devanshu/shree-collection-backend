@@ -28,7 +28,8 @@ const getClient = () => {
 export const initiateCheckout = async (req, res) => {
   try {
     const { items, email } = req.body;
-
+    const isReseller = req.reseller != null; 
+    
     // Step 1 — Validate cart items server-side
     const validatedItems = await validateCartService(items);
 
