@@ -29,6 +29,12 @@ export const initiateCheckout = async (req, res) => {
   try {
     const { items, email } = req.body;
     const isReseller = req.reseller != null; 
+    console.log('CHECKOUT INITIATE DEBUG:', {
+      isReseller,
+      reseller: req.reseller,
+      authHeader: req.headers.authorization?.slice(0, 30),
+      itemPrices: items?.map(i => ({ title: i.title, price: i.price })),
+    });
     
     // Step 1 — Validate cart items server-side
     const validatedItems = await validateCartService(items);
