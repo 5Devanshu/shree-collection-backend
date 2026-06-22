@@ -23,24 +23,32 @@ const getClient = () => {
 };
 
 // ─── POST /api/checkout/initiate ─────────────────────────────────────────────
-// Called when user clicks "Complete Order" on Checkout.jsx.
-// Returns: checkoutUrl (load in iframe) + merchantOrderId (store in frontend state)
 export const initiateCheckout = async (req, res) => {
   try {
     const { items, email } = req.body;
-    const isReseller = req.reseller != null; 
+    const isReseller = req.reseller != null;
+
+    // Shipping state — read defensively across possible payload shapes
+    const state =
+      req.body.guestAddress?.state    ||
+      req.body.shippingAddress?.state ||
+      req.body.address?.state         ||
+      req.body.state                  || '';
+
     console.log('CHECKOUT INITIATE DEBUG:', {
       isReseller,
+      state,
       reseller: req.reseller,
       authHeader: req.headers.authorization?.slice(0, 30),
       itemPrices: items?.map(i => ({ title: i.title, price: i.price })),
     });
-    
+
     // Step 1 — Validate cart items server-side
     const validatedItems = await validateCartService(items, isReseller);
 
-    // Step 2 — Calculate totals
-    const { subtotal, shippingCost, total } = calculateTotalsService(validatedItems);
+    // Step 2 — Calculate totals (delivery charge applied here, authoritatively)
+    const { subtotal, shippingCost, total } =
+      calculateTotalsService(validatedItems, { isReseller, state });
 
     // Step 3 — Create PhonePe payment order
     const { checkoutUrl, merchantOrderId, phonePeOrderId } =
@@ -48,9 +56,9 @@ export const initiateCheckout = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      checkoutUrl,       // → load this in your iframe
-      merchantOrderId,   // → store in React state, needed for confirm step
-      phonePeOrderId,    // → optional, for your records
+      checkoutUrl,
+      merchantOrderId,
+      phonePeOrderId,
       amount:    total,
       currency:  'INR',
       subtotal,
@@ -64,8 +72,6 @@ export const initiateCheckout = async (req, res) => {
 };
 
 // ─── POST /api/checkout/confirm ───────────────────────────────────────────────
-// Called by the frontend after PhonePe redirects to your callback page.
-// Verifies payment status via Order Status API, then places the order.
 export const confirmCheckout = async (req, res) => {
   try {
     const {
@@ -73,9 +79,6 @@ export const confirmCheckout = async (req, res) => {
       email,
       shippingAddress,
       validatedItems,
-      subtotal,
-      shippingCost,
-      total,
     } = req.body;
 
     // Step 4 — Verify payment with PhonePe Order Status API
@@ -90,11 +93,21 @@ export const confirmCheckout = async (req, res) => {
       });
     }
 
-    // Extract PhonePe transaction ID from payment details
     const phonePeTransactionId =
       statusResult.paymentDetails?.[0]?.transactionId || merchantOrderId;
 
-    // Step 5 — Create confirmed order in MongoDB
+    // ── Authoritative totals ──────────────────────────────────────────────────
+    // Source of truth = amount PhonePe actually captured + server-validated prices.
+    // Client-sent money fields are ignored. Delivery charge = captured − subtotal.
+    const lineItems = validatedItems || [];
+    const subtotal  = lineItems.length
+      ? lineItems.reduce((sum, i) => sum + Number(i.price) * (i.quantity || 1), 0)
+      : Number(req.body.subtotal) || 0;
+
+    const total        = Number(statusResult.amount) / 100;          // paise → rupees
+    const shippingCost = Math.max(0, Number((total - subtotal).toFixed(2)));
+
+    // Step 5 — Create confirmed order in Postgres
     const order = await confirmOrderService({
       email,
       shippingAddress,
@@ -104,9 +117,9 @@ export const confirmCheckout = async (req, res) => {
       total,
       merchantOrderId,
       phonePeTransactionId,
+      resellerId: req.reseller?.id ?? null,
+      customerId: req.customer?.id ?? null,
     });
-
-    // Step 6 — Send confirmation email
 
     res.status(201).json({ success: true, order });
   } catch (error) {
@@ -115,8 +128,6 @@ export const confirmCheckout = async (req, res) => {
 };
 
 // ─── GET /api/checkout/status/:merchantOrderId ────────────────────────────────
-// Fallback endpoint — frontend polls this if webhook doesn't arrive in time
-// Frontend can call this on the /checkout/callback page after PhonePe redirect
 export const getPaymentStatus = async (req, res) => {
   try {
     const { merchantOrderId } = req.params;
@@ -124,9 +135,9 @@ export const getPaymentStatus = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      state:           statusResult.state,        // COMPLETED | FAILED | PENDING
+      state:           statusResult.state,
       merchantOrderId: statusResult.merchantOrderId,
-      amount:          statusResult.amount / 100,  // convert paise → rupees
+      amount:          statusResult.amount / 100,
       paymentDetails:  statusResult.paymentDetails,
     });
   } catch (error) {
@@ -135,9 +146,6 @@ export const getPaymentStatus = async (req, res) => {
 };
 
 // ─── POST /api/checkout/webhook ───────────────────────────────────────────────
-// PhonePe server-to-server callback.
-// Events: checkout.order.completed | checkout.order.failed
-// pg.refund.completed | pg.refund.failed
 export const handleWebhook = async (req, res) => {
   try {
     const authHeader = req.headers['authorization'];
@@ -145,7 +153,6 @@ export const handleWebhook = async (req, res) => {
 
     const client = getClient();
 
-    // Validates authenticity — throws if credentials don't match
     const callbackResponse = validateWebhookService(
       client,
       process.env.PHONEPE_WEBHOOK_USERNAME,
@@ -154,26 +161,16 @@ export const handleWebhook = async (req, res) => {
       bodyString
     );
 
-    // Use callbackResponse.event to identify the event type (NOT payload.state)
     const event           = callbackResponse.event;
     const state           = callbackResponse.payload?.state;
     const merchantOrderId = callbackResponse.payload?.merchantOrderId;
 
     if (event === 'checkout.order.completed' && state === 'COMPLETED') {
-      // Payment succeeded — Order was already placed via /confirm
-      // This webhook is a safety net to catch any orders that missed /confirm
       console.log(`✅ PhonePe payment completed for order: ${merchantOrderId}`);
-
-      // Optional: update order paymentStatus to 'paid' if it was 'pending'
-      // await Order.findOneAndUpdate(
-      //   { paymentReference: merchantOrderId, paymentStatus: 'pending' },
-      //   { paymentStatus: 'paid' }
-      // );
     }
 
     if (event === 'checkout.order.failed') {
       console.warn(`❌ PhonePe payment failed for order: ${merchantOrderId}`);
-      // Optional: mark order as failed, notify admin
     }
 
     if (event === 'pg.refund.completed') {
@@ -184,7 +181,6 @@ export const handleWebhook = async (req, res) => {
       console.warn(`⚠️ Refund failed for order: ${merchantOrderId}`);
     }
 
-    // PhonePe expects a 200 response — else it retries
     res.status(200).json({ success: true });
   } catch (error) {
     console.error('Webhook error:', error.message);

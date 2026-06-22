@@ -19,7 +19,6 @@ export const decrementStockForItems = async (items) => {
 
     await product.update({ stock: newStock, stockStatus });
 
-    // Alert admin once, when stock first crosses the threshold
     if (newStock <= 5 && previousStock > 5) {
       await sendLowStockAlert(product);
     }
@@ -37,7 +36,6 @@ export const createOrderService = async (data) => {
 
   await decrementStockForItems(items);
 
-  // Confirmation email — never fail the order if email fails (Brevo service swallows errors)
   const name = data.shippingAddress
     ? `${data.shippingAddress.firstName || ''} ${data.shippingAddress.lastName || ''}`.trim() || 'Customer'
     : 'Customer';
@@ -52,9 +50,16 @@ export const createOrderService = async (data) => {
 };
 
 // ── Get all orders (AdminOrders table) ────────────────────────────────────────
-export const getAllOrdersService = async ({ page = 1, limit = 20, status } = {}) => {
+// buyerType: 'reseller' → resellerId set · 'customer' → resellerId null (incl. guests)
+export const getAllOrdersService = async ({ page = 1, limit = 20, status, buyerType } = {}) => {
   const where = {};
   if (status) where.status = status;
+
+  if (buyerType === 'reseller') {
+    where.resellerId = { [Op.ne]: null };
+  } else if (buyerType === 'customer') {
+    where.resellerId = { [Op.is]: null };
+  }
 
   const offset = (Number(page) - 1) * Number(limit);
 
@@ -110,6 +115,7 @@ export const exportOrdersCSVService = async () => {
     orderNumber:   o.orderNumber,
     email:         o.email,
     customerName:  `${o.shippingAddress?.firstName || ''} ${o.shippingAddress?.lastName || ''}`.trim(),
+    buyerType:     o.resellerId ? 'reseller' : 'customer',
     city:          o.shippingAddress?.city || '',
     status:        o.status,
     paymentStatus: o.paymentStatus,

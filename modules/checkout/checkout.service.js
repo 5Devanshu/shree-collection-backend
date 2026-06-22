@@ -15,22 +15,34 @@ let phonePeClient;
 const getPhonePeClient = () => {
   if (!phonePeClient) {
     const env = process.env.PHONEPE_ENV === 'PRODUCTION' ? Env.PRODUCTION : Env.SANDBOX;
- phonePeClient = StandardCheckoutClient.getInstance(
-  process.env.PHONEPE_CLIENT_ID,      // ← back to CLIENT_ID
-  process.env.PHONEPE_CLIENT_SECRET,
-  Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
-  env
-);
+    phonePeClient = StandardCheckoutClient.getInstance(
+      process.env.PHONEPE_CLIENT_ID,
+      process.env.PHONEPE_CLIENT_SECRET,
+      Number(process.env.PHONEPE_CLIENT_VERSION) || 1,
+      env
+    );
   }
   return phonePeClient;
 };
 
 // ─── Helper: server-side authoritative price ──────────────────────────────────
-// Reseller → resellerPrice (if set) · Retail → discountedPrice if active, else price
 const resolvePrice = (product, isReseller) => {
   if (isReseller && Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
   if (product.discountEnabled && Number(product.discountedPrice) > 0) return Number(product.discountedPrice);
   return Number(product.price);
+};
+
+// ─── Helper: authoritative delivery charge ────────────────────────────────────
+// Customer: FREE at ₹500+, else ₹70 (Maharashtra) / ₹90 (other state)
+// Reseller: ALWAYS charged ₹70 (Maharashtra) / ₹90 (other state) — no free threshold
+const FREE_DELIVERY_THRESHOLD = { customer: 500, reseller: Infinity };
+const DELIVERY_CHARGE         = { maharashtra: 70, other: 90 };
+
+export const calculateDeliveryCharge = ({ subtotal, isReseller = false, state = '' }) => {
+  const threshold = isReseller ? FREE_DELIVERY_THRESHOLD.reseller : FREE_DELIVERY_THRESHOLD.customer;
+  if (Number(subtotal) >= threshold) return 0;
+  const isMaharashtra = String(state || '').trim().toLowerCase() === 'maharashtra';
+  return isMaharashtra ? DELIVERY_CHARGE.maharashtra : DELIVERY_CHARGE.other;
 };
 
 // ─── Step 1: Validate Cart ────────────────────────────────────────────────────
@@ -49,7 +61,6 @@ export const validateCartService = async (items, isReseller = false) => {
 
     const expectedPrice = resolvePrice(product, isReseller);
 
-    // DECIMAL comes back as a string from Postgres — compare as numbers
     if (Number(item.price) !== expectedPrice) {
       throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
     }
@@ -68,9 +79,11 @@ export const validateCartService = async (items, isReseller = false) => {
 };
 
 // ─── Step 2: Calculate Totals ─────────────────────────────────────────────────
-export const calculateTotalsService = (validatedItems) => {
+// NOTE: caller MUST pass { isReseller, state } or every sub-threshold customer
+// defaults to ₹90 and resellers get treated as customers.
+export const calculateTotalsService = (validatedItems, { isReseller = false, state = '' } = {}) => {
   const subtotal     = validatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const shippingCost = 0;   // Complimentary Express Shipping
+  const shippingCost = calculateDeliveryCharge({ subtotal, isReseller, state });
   const total        = subtotal + shippingCost;
   return { subtotal, shippingCost, total };
 };
@@ -104,7 +117,7 @@ export const checkOrderStatusService = async (merchantOrderId) => {
   const client   = getPhonePeClient();
   const response = await client.getOrderStatus(merchantOrderId);
   return {
-    state:           response.state,   // COMPLETED | FAILED | PENDING
+    state:           response.state,
     merchantOrderId: response.merchantOrderId,
     amount:          response.amount,
     paymentDetails:  response.paymentDetails,
@@ -112,8 +125,6 @@ export const checkOrderStatusService = async (merchantOrderId) => {
 };
 
 // ─── Step 5: Confirm & Place Order in DB ─────────────────────────────────────
-// Called after PhonePe confirms payment. Creates the order, decrements stock
-// (with admin low-stock alerts), and sends the Brevo confirmation email.
 export const confirmOrderService = async ({
   email,
   shippingAddress,
@@ -144,10 +155,10 @@ export const confirmOrderService = async ({
   await decrementStockForItems(validatedItems);
 
   if (customerId) {
-  await Cart.destroy({ where: { customerId } });
-} else if (resellerId) {
-  await Cart.destroy({ where: { resellerId } });
-}
+    await Cart.destroy({ where: { customerId } });
+  } else if (resellerId) {
+    await Cart.destroy({ where: { resellerId } });
+  }
 
   const name = shippingAddress?.name || 'Customer';
   await sendOrderConfirmationEmail(order.email, {
