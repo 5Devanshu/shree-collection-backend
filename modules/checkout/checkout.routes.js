@@ -9,8 +9,8 @@ import {
 
 const router = express.Router();
 
-router.post('/initiate', optionalAuth, initiateCheckout);  // ← add optionalAuth
-router.post('/confirm',  confirmCheckout);
+router.post('/initiate', optionalAuth, initiateCheckout);
+router.post('/confirm',  optionalAuth, confirmCheckout);   // ← add optionalAuth
 router.get('/status/:merchantOrderId', getPaymentStatus);
 router.post(
   '/webhook',

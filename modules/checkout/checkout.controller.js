@@ -81,6 +81,11 @@ export const confirmCheckout = async (req, res) => {
       validatedItems,
     } = req.body;
 
+    // Guard — reject malformed confirms so blank/null-email orders can't be created
+    if (!email || !merchantOrderId || !Array.isArray(validatedItems) || validatedItems.length === 0) {
+      return res.status(400).json({ success: false, message: 'Missing order details.' });
+    }
+
     // Step 4 — Verify payment with PhonePe Order Status API
     const statusResult = await checkOrderStatusService(merchantOrderId);
 
