@@ -83,20 +83,6 @@ const Order = sequelize.define(
       defaultValue: null,
     },
 
-    // Cashfree fields
-    cashfreeOrderId: {
-      type: DataTypes.STRING,
-      defaultValue: '',
-    },
-    cashfreePaymentId: {
-      type: DataTypes.STRING,
-      defaultValue: '',
-    },
-    cashfreePaymentSessionId: {
-      type: DataTypes.STRING,
-      defaultValue: '',
-    },
-
     trackingNumber: {
       type: DataTypes.STRING,
       defaultValue: '',
