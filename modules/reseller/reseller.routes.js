@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   register, login, getMe, updateMe,
-  getAllResellers, verifyReseller, rejectReseller,
+  getAllResellers, verifyReseller, rejectReseller, deleteReseller,
   requestOtp, verifyOtp,
 } from './reseller.controller.js';
 import { protectReseller } from './reseller.middleware.js';
@@ -23,5 +23,6 @@ router.patch('/me', protectReseller, updateMe);
 router.get('/',             protect, getAllResellers);
 router.patch('/:id/verify', protect, verifyReseller);
 router.patch('/:id/reject', protect, rejectReseller);
+router.delete('/:id',       protect, deleteReseller);
 
 export default router;

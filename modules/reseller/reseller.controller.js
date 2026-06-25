@@ -264,3 +264,17 @@ export const rejectReseller = async (req, res, next) => {
     });
   } catch (err) { next(err); }
 };
+
+export const deleteReseller = async (req, res, next) => {
+  try {
+    const reseller = await Reseller.findByPk(req.params.id);
+    if (!reseller)
+      return res.status(404).json({ success: false, message: 'Reseller not found' });
+ 
+    const name = reseller.name;
+    await reseller.destroy();
+ 
+    res.status(200).json({ success: true, message: `${name} has been removed.` });
+  } catch (err) { next(err); }
+};
+ 
