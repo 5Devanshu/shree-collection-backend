@@ -92,12 +92,47 @@ const Product = sequelize.define(
       defaultValue: 0,
     },
 
-    // Available sizes — pill UI in admin + ring size selector in ProductDescription
+    // Flat list of sizes — auto-generated server-side from sizeMin/sizeMax/sizeStep
+    // when sizeEnabled is true. Kept as JSONB array for simple rendering on storefront.
     sizes: {
       type: DataTypes.JSONB,
       defaultValue: [],
     },
-    // Add these inside the model definition, after `sizes`:
+
+    // ── Category-aware sizing ──────────────────────────────────────────────
+    // Single source of truth for whether a size selector shows at all.
+    // Replaces the old "guess from category name / ring slug" approach.
+    sizeEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // Admin-editable label shown above the size selector, e.g. "Necklace Size".
+    // Auto-suggested from the product's category name when sizing is first enabled.
+    sizeLabel: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+    // Range the admin sets, e.g. min=1, max=10, step=1 → sizes [1,2,...,10]
+    sizeMin: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    sizeMax: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    sizeStep: {
+      type: DataTypes.DECIMAL(5, 2),
+      defaultValue: 1,
+    },
+    // Per-size stock — only populated when admin enables size-wise inventory.
+    // Shape: [{ size: 6, stock: 4 }, { size: 7, stock: 0 }, ...]
+    // When empty, the storefront falls back to the single top-level `stock` field.
+    sizeStock: {
+      type: DataTypes.JSONB,
+      defaultValue: [],
+    },
+
     colour:    { type: DataTypes.STRING, defaultValue: '' },
     plating:   { type: DataTypes.STRING, defaultValue: '' },
     stoneType: { type: DataTypes.STRING, defaultValue: '' },
@@ -112,9 +147,9 @@ const Product = sequelize.define(
       defaultValue: '30-day graceful returns',
     },
     resellerPrice: {
-  type: DataTypes.DECIMAL(10, 2),
-  defaultValue: 0,   // 0 means use normal price — admin sets this per product
-},
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0,   // 0 means use normal price — admin sets this per product
+    },
   },
   {
     tableName: 'products',

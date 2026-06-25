@@ -2,6 +2,24 @@ import { Op } from 'sequelize';
 import Product  from './product.model.js';
 import Category from '../category/category.model.js';
 
+// ─── Generate flat size list from admin's range ───────────────────────────────
+// e.g. (1, 10, 1) → [1,2,3,4,5,6,7,8,9,10]
+// e.g. (4, 8, 0.5) → [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8]
+export const generateSizeRange = (min, max, step = 1) => {
+  const lo = Number(min);
+  const hi = Number(max);
+  const st = Number(step) || 1;
+
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo || st <= 0) return [];
+
+  const sizes = [];
+  // Round to 2dp to avoid floating point drift (e.g. 4 + 0.1 + 0.1 !== 4.2 exactly)
+  for (let v = lo; v <= hi + 1e-9; v = +(v + st).toFixed(2)) {
+    sizes.push(+v.toFixed(2));
+  }
+  return sizes;
+};
+
 // ─── Normalize incoming data from frontend ────────────────────────────────────
 const normalizeProductData = (data) => {
   const d = { ...data };
@@ -27,6 +45,36 @@ const normalizeProductData = (data) => {
   if (d.stock !== undefined && d.stockStatus === undefined) {
     const s = Number(d.stock);
     d.stockStatus = s === 0 ? 'out_of_stock' : s <= 5 ? 'low_stock' : 'in_stock';
+  }
+
+  // ── Sizing ──────────────────────────────────────────────────────────────
+  // sizeEnabled is the single source of truth for whether a size selector
+  // shows on the storefront (desktop or mobile). When true and a valid
+  // range is given, derive the flat `sizes` list server-side so the
+  // frontend never has to regenerate or guess it.
+  if (d.sizeEnabled && d.sizeMin !== undefined && d.sizeMax !== undefined) {
+    const generatedSizes = generateSizeRange(d.sizeMin, d.sizeMax, d.sizeStep || 1);
+    d.sizes = generatedSizes;
+
+    // Keep only per-size stock entries that match the current generated range
+    // (handles the case where admin shrinks/changes the range after setting stock)
+    if (Array.isArray(d.sizeStock) && d.sizeStock.length > 0) {
+      d.sizeStock = d.sizeStock
+        .filter(s => generatedSizes.includes(Number(s.size)))
+        .map(s => ({ size: Number(s.size), stock: Number(s.stock) || 0 }));
+    }
+  }
+
+  // Sizing explicitly disabled — clear all size data so stale values can
+  // never leak onto the storefront. This is what fixes the bug where a
+  // size selector appeared on mobile even when the admin didn't add sizes:
+  // previously the frontend inferred sizing from category name or leftover
+  // array contents instead of checking one explicit flag.
+  if (d.sizeEnabled === false) {
+    d.sizes      = [];
+    d.sizeStock  = [];
+    d.sizeMin    = null;
+    d.sizeMax    = null;
   }
 
   return d;
