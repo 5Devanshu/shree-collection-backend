@@ -2,22 +2,22 @@ import { Op } from 'sequelize';
 import Product  from './product.model.js';
 import Category from '../category/category.model.js';
 
-// ─── Generate flat size list from admin's range ───────────────────────────────
-// e.g. (1, 10, 1) → [1,2,3,4,5,6,7,8,9,10]
-// e.g. (4, 8, 0.5) → [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8]
-export const generateSizeRange = (min, max, step = 1) => {
-  const lo = Number(min);
-  const hi = Number(max);
-  const st = Number(step) || 1;
+// ─── Normalize incoming sizeStock entries from the admin form ─────────────────
+// Admin adds sizes one at a time (chips), each with its own stock. We trust
+// whatever list of {size, stock} pairs the frontend sends — no more range
+// generation. Dedupes by size (last one wins) and sorts ascending.
+const normalizeSizeStock = (rawSizeStock) => {
+  if (!Array.isArray(rawSizeStock)) return [];
 
-  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi < lo || st <= 0) return [];
-
-  const sizes = [];
-  // Round to 2dp to avoid floating point drift (e.g. 4 + 0.1 + 0.1 !== 4.2 exactly)
-  for (let v = lo; v <= hi + 1e-9; v = +(v + st).toFixed(2)) {
-    sizes.push(+v.toFixed(2));
+  const bySize = new Map();
+  for (const entry of rawSizeStock) {
+    const size  = Number(entry?.size);
+    const stock = Number(entry?.stock) || 0;
+    if (!Number.isFinite(size)) continue;
+    bySize.set(size, { size, stock });
   }
-  return sizes;
+
+  return Array.from(bySize.values()).sort((a, b) => a.size - b.size);
 };
 
 // ─── Normalize incoming data from frontend ────────────────────────────────────
@@ -49,20 +49,14 @@ const normalizeProductData = (data) => {
 
   // ── Sizing ──────────────────────────────────────────────────────────────
   // sizeEnabled is the single source of truth for whether a size selector
-  // shows on the storefront (desktop or mobile). When true and a valid
-  // range is given, derive the flat `sizes` list server-side so the
-  // frontend never has to regenerate or guess it.
-  if (d.sizeEnabled && d.sizeMin !== undefined && d.sizeMax !== undefined) {
-    const generatedSizes = generateSizeRange(d.sizeMin, d.sizeMax, d.sizeStep || 1);
-    d.sizes = generatedSizes;
-
-    // Keep only per-size stock entries that match the current generated range
-    // (handles the case where admin shrinks/changes the range after setting stock)
-    if (Array.isArray(d.sizeStock) && d.sizeStock.length > 0) {
-      d.sizeStock = d.sizeStock
-        .filter(s => generatedSizes.includes(Number(s.size)))
-        .map(s => ({ size: Number(s.size), stock: Number(s.stock) || 0 }));
-    }
+  // shows on the storefront (desktop or mobile). Sizes are no longer
+  // generated from a min/max/step range — the admin adds each size
+  // individually (e.g. 2.4, 2.6, 2.8), and `sizes` is just the list of
+  // those values, sorted, with `sizeStock` holding the per-size stock.
+  if (d.sizeEnabled) {
+    const normalizedStock = normalizeSizeStock(d.sizeStock);
+    d.sizeStock = normalizedStock;
+    d.sizes     = normalizedStock.map(s => s.size);
   }
 
   // Sizing explicitly disabled — clear all size data so stale values can
@@ -71,10 +65,8 @@ const normalizeProductData = (data) => {
   // previously the frontend inferred sizing from category name or leftover
   // array contents instead of checking one explicit flag.
   if (d.sizeEnabled === false) {
-    d.sizes      = [];
-    d.sizeStock  = [];
-    d.sizeMin    = null;
-    d.sizeMax    = null;
+    d.sizes     = [];
+    d.sizeStock = [];
   }
 
   return d;

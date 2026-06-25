@@ -92,8 +92,9 @@ const Product = sequelize.define(
       defaultValue: 0,
     },
 
-    // Flat list of sizes — auto-generated server-side from sizeMin/sizeMax/sizeStep
-    // when sizeEnabled is true. Kept as JSONB array for simple rendering on storefront.
+    // Flat list of sizes shown on the storefront — derived server-side from
+    // the `size` values in sizeStock. Kept as its own JSONB array (rather
+    // than re-deriving on every read) for simple, fast rendering.
     sizes: {
       type: DataTypes.JSONB,
       defaultValue: [],
@@ -101,7 +102,6 @@ const Product = sequelize.define(
 
     // ── Category-aware sizing ──────────────────────────────────────────────
     // Single source of truth for whether a size selector shows at all.
-    // Replaces the old "guess from category name / ring slug" approach.
     sizeEnabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -112,7 +112,11 @@ const Product = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: '',
     },
-    // Range the admin sets, e.g. min=1, max=10, step=1 → sizes [1,2,...,10]
+
+    // Deprecated — sizes are no longer generated from a min/max/step range.
+    // Admin now adds each size individually (see sizeStock). These columns
+    // are kept only so we don't need a DB migration; they're unused by the
+    // service layer and safe to drop later.
     sizeMin: {
       type: DataTypes.DECIMAL(5, 2),
       allowNull: true,
@@ -125,9 +129,11 @@ const Product = sequelize.define(
       type: DataTypes.DECIMAL(5, 2),
       defaultValue: 1,
     },
-    // Per-size stock — only populated when admin enables size-wise inventory.
-    // Shape: [{ size: 6, stock: 4 }, { size: 7, stock: 0 }, ...]
-    // When empty, the storefront falls back to the single top-level `stock` field.
+
+    // Per-size stock — the source of truth for sizing. Admin adds entries
+    // one at a time via the "+ Add Size" control in the admin product form.
+    // Shape: [{ size: 2.4, stock: 4 }, { size: 2.6, stock: 0 }, ...]
+    // When sizeEnabled is false this is always cleared to [].
     sizeStock: {
       type: DataTypes.JSONB,
       defaultValue: [],
