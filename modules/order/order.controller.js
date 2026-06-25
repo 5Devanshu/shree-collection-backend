@@ -22,6 +22,18 @@ export const getAllOrders = async (req, res) => {
   }
 };
 
+// ── ADD this handler anywhere after getAllOrders() in order.controller.js ─────
+
+// GET /api/orders/my-orders  [Reseller — own orders only]
+export const getMyOrders = async (req, res) => {
+  try {
+    const result = await orderService.getResellerOrdersService(req.reseller.id, req.query);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // GET /api/orders/recent  [Admin]
 export const getRecentOrders = async (req, res) => {
   try {

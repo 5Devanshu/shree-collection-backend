@@ -19,6 +19,12 @@ const Reseller = sequelize.define('Reseller', {
   otpExpiresAt: { type: DataTypes.DATE,    allowNull: true, defaultValue: null },
   otpAttempts:  { type: DataTypes.INTEGER, defaultValue: 0 },
   isVerified:   { type: DataTypes.BOOLEAN, defaultValue: false },
+
+  // ── Profile / address — editable via PATCH /api/resellers/me ──────────────
+  address: { type: DataTypes.STRING(500), defaultValue: '' },
+  city:    { type: DataTypes.STRING, defaultValue: '' },
+  state:   { type: DataTypes.STRING, defaultValue: '' },
+  pincode: { type: DataTypes.STRING, defaultValue: '' },
 }, { tableName: 'resellers', timestamps: true });
 
 Reseller.beforeCreate(async (r) => {

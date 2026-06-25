@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  register, login, getMe,
+  register, login, getMe, updateMe,
   getAllResellers, verifyReseller, rejectReseller,
   requestOtp, verifyOtp,
 } from './reseller.controller.js';
@@ -16,7 +16,8 @@ router.post('/otp/request', requestOtp);
 router.post('/otp/verify',  verifyOtp);
 
 // Reseller
-router.get('/me', protectReseller, getMe);
+router.get('/me',   protectReseller, getMe);
+router.patch('/me', protectReseller, updateMe);
 
 // Admin
 router.get('/',             protect, getAllResellers);

@@ -8,6 +8,7 @@ import {
   sendOtpEmail,
 } from '../../services/brevo.service.js';
 import { generateOtp, hashOtp } from '../../utils/otp.js';
+import bcrypt from 'bcryptjs';
 
 const OTP_TTL_MS       = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
@@ -180,6 +181,44 @@ export const getMe = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+export const updateMe = async (req, res, next) => {
+  try {
+    const reseller = await Reseller.findByPk(req.reseller.id);
+    if (!reseller)
+      return res.status(404).json({ success: false, message: 'Reseller not found' });
+ 
+    const { name, company, address, city, state, pincode, currentPassword, newPassword } = req.body;
+ 
+    const updates = {};
+    if (name    !== undefined) updates.name    = String(name).trim();
+    if (company !== undefined) updates.company = String(company).trim();
+    if (address !== undefined) updates.address = String(address).trim();
+    if (city    !== undefined) updates.city    = String(city).trim();
+    if (state   !== undefined) updates.state   = String(state).trim();
+    if (pincode !== undefined) updates.pincode = String(pincode).trim();
+ 
+    // Optional password change — requires current password to confirm identity
+    if (newPassword) {
+      if (!currentPassword)
+        return res.status(400).json({ success: false, message: 'Current password is required to set a new password.' });
+ 
+      const matches = await reseller.matchPassword(currentPassword);
+      if (!matches)
+        return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+ 
+      updates.password = newPassword; // beforeUpdate hook hashes this automatically
+    }
+ 
+    await reseller.update(updates);
+ 
+    const safeReseller = await Reseller.findByPk(reseller.id, {
+      attributes: { exclude: ['password', 'otpHash'] },
+    });
+ 
+    res.status(200).json({ success: true, data: safeReseller });
+  } catch (err) { next(err); }
+};
+ 
 // ── GET /api/resellers ────────────────────────────────────────────────────────
 export const getAllResellers = async (req, res, next) => {
   try {

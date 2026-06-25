@@ -73,6 +73,27 @@ export const getAllOrdersService = async ({ page = 1, limit = 20, status, buyerT
   return { orders, total, page: Number(page), limit: Number(limit) };
 };
 
+// ── ADD this function anywhere in order.service.js, e.g. after getAllOrdersService ──
+
+// ── My Orders (reseller's own order history) ──────────────────────────────────
+// Unlike getAllOrdersService (admin, sees everyone), this is scoped to a single
+// resellerId so a reseller can only ever see their own orders.
+export const getResellerOrdersService = async (resellerId, { page = 1, limit = 20, status } = {}) => {
+  const where = { resellerId };
+  if (status) where.status = status;
+
+  const offset = (Number(page) - 1) * Number(limit);
+
+  const { rows: orders, count: total } = await Order.findAndCountAll({
+    where,
+    order:  [['createdAt', 'DESC']],
+    offset,
+    limit:  Number(limit),
+  });
+
+  return { orders, total, page: Number(page), limit: Number(limit) };
+};
+
 // ── Recent orders (AdminDashboard) ────────────────────────────────────────────
 export const getRecentOrdersService = async (limit = 5) => {
   return Order.findAll({ order: [['createdAt', 'DESC']], limit: Number(limit) });
