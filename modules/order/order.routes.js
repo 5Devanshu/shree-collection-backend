@@ -4,6 +4,7 @@ import {
   createDemoOrder,
   getAllOrders,
   getMyOrders,
+  getMyOrdersCustomer,
   getRecentOrders,
   getOrderStats,
   exportOrdersCSV,
@@ -16,6 +17,7 @@ import {
 } from './order.controller.js';
 import protect from '../auth/auth.middleware.js';
 import { protectReseller } from '../reseller/reseller.middleware.js';
+import { protectCustomer } from '../customer/customer.middleware.js';
 
 const router = express.Router();
 
@@ -38,18 +40,20 @@ router.get('/export',  protect, exportOrdersCSV);
 // Guest checkout demo endpoint (must be before /:id routes)
 router.post('/demo', createDemoOrder);
 
-// ─── Reseller Protected Routes ────────────────────────────────────
-// ⚠️ MUST BE BEFORE /:id routes — otherwise "/my-orders" gets swallowed
-// as if "my-orders" were an :id value.
+// ─── Reseller / Customer Protected Routes ─────────────────────────
+// ⚠️ MUST BE BEFORE /:id routes — otherwise these get swallowed as if
+// the path segment were an :id value.
 // Reseller's own order history — scoped to req.reseller.id only.
-router.get('/my-orders', protectReseller, getMyOrders);
+router.get('/my-orders',          protectReseller, getMyOrders);
+// Customer's own order history — scoped to req.customer.id only.
+router.get('/my-orders-customer', protectCustomer, getMyOrdersCustomer);
 
 // ─── Public Routes ───────────────────────────────────────────────
 // Checkout.jsx "Complete Order" button
 router.post('/', createOrder);
 
 // ─── Dynamic ID Routes ───────────────────────────────────────────
-// ⚠️ MUST BE AFTER specific routes like /stats, /recent, /demo, /my-orders, /payment/callback
+// ⚠️ MUST BE AFTER specific routes like /stats, /recent, /demo, /my-orders*, /payment/callback
 // Initiate PhonePe payment (frontend after order creation)
 router.post('/:id/payment/initiate', initiatePayment);
 

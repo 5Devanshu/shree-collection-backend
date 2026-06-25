@@ -94,6 +94,22 @@ export const getResellerOrdersService = async (resellerId, { page = 1, limit = 2
   return { orders, total, page: Number(page), limit: Number(limit) };
 };
 
+export const getCustomerOrdersService = async (customerId, { page = 1, limit = 20, status } = {}) => {
+  const where = { customerId };
+  if (status) where.status = status;
+ 
+  const offset = (Number(page) - 1) * Number(limit);
+ 
+  const { rows: orders, count: total } = await Order.findAndCountAll({
+    where,
+    order:  [['createdAt', 'DESC']],
+    offset,
+    limit:  Number(limit),
+  });
+ 
+  return { orders, total, page: Number(page), limit: Number(limit) };
+};
+
 // ── Recent orders (AdminDashboard) ────────────────────────────────────────────
 export const getRecentOrdersService = async (limit = 5) => {
   return Order.findAll({ order: [['createdAt', 'DESC']], limit: Number(limit) });

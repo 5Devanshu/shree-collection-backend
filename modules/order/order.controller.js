@@ -34,6 +34,15 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
+export const getMyOrdersCustomer = async (req, res) => {
+  try {
+    const result = await orderService.getCustomerOrdersService(req.customer.id, req.query);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // GET /api/orders/recent  [Admin]
 export const getRecentOrders = async (req, res) => {
   try {
