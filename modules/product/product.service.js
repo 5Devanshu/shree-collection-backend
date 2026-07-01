@@ -37,8 +37,11 @@ const normalizeSizeStock = (rawSizeStock) => {
 };
 
 // ─── Resolve the effective price for one size entry ───────────────────────────
-// Priority: reseller size-price → reseller base price → discounted size-price
-// → size-price → discounted base price → base price.
+// Two independent fallback chains — a size's customer-rate override does NOT
+// affect whether the reseller rate falls back to the base reseller price.
+//   Reseller: size resellerPrice → base resellerPrice → (size price or base
+//             price, discounted if enabled)
+//   Customer: size price → base price (discounted if enabled)
 export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
   const basePrice = Number(product.price) || 0;
   const hasSizePrice = sizeEntry && Number(sizeEntry.price) > 0;
@@ -47,9 +50,10 @@ export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
   if (isReseller) {
     const hasSizeResellerPrice = sizeEntry && Number(sizeEntry.resellerPrice) > 0;
     if (hasSizeResellerPrice) return Number(sizeEntry.resellerPrice);
-    if (Number(product.resellerPrice) > 0 && !hasSizePrice) return Number(product.resellerPrice);
-    // Reseller has no size-specific reseller rate — fall through to
-    // discount/retail logic below, applied to the size's retail price.
+    if (Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
+    // Neither this size nor the product has a reseller rate — reseller pays
+    // the same (possibly size-specific, possibly discounted) rate as a
+    // customer for this size. Falls through below.
   }
 
   const percent = Number(product.discountPercent) || 0;
