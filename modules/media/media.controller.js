@@ -1,6 +1,5 @@
 import * as mediaService from './media.service.js';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl }     from '@aws-sdk/s3-request-presigner';
 import s3, { BUCKET_NAME }  from '../../config/storage.js';
 
 export const uploadImage = async (req, res) => {
@@ -82,12 +81,26 @@ export const deleteMedia = async (req, res) => {
 };
 
 // ─── GET /api/media/file/:key — public, no auth ───────────────────────────────
+// Streams the file directly from R2 to the browser. A 302 redirect to a
+// presigned URL was used before, but R2 presigned URLs are blocked by the
+// browser when the referrer is a different origin (CORS + presigned URL
+// restrictions). Streaming through the backend avoids this entirely and works
+// regardless of bucket CORS policy.
 export const serveFile = async (req, res) => {
   try {
     const key = decodeURIComponent(req.params.key);
     const command  = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
-    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
-    res.redirect(302, signedUrl);
+    const response = await s3.send(command);
+
+    // Forward content headers so the browser renders images correctly
+    if (response.ContentType)   res.setHeader('Content-Type',   response.ContentType);
+    if (response.ContentLength) res.setHeader('Content-Length', response.ContentLength);
+
+    // Cache for 1 hour — same lifetime as old presigned URLs
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    // Pipe the R2 readable stream straight to the HTTP response
+    response.Body.pipe(res);
   } catch (error) {
     res.status(404).json({ success: false, message: 'File not found' });
   }
