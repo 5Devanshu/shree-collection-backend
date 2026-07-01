@@ -228,6 +228,15 @@ export const getProductByIdService = async (id, isReseller = false) => {
 export const createProductService = async (data) => {
   const normalized = normalizeProductData(data);
 
+  // Populate categorySlug from the Category row — this field drives the
+  // /collections/:slug storefront pages and the "related products" query.
+  // Without it every product has categorySlug='' and never appears on its
+  // category page even though categoryId is set correctly.
+  if (normalized.categoryId) {
+    const cat = await Category.findByPk(normalized.categoryId);
+    if (cat) normalized.categorySlug = cat.slug;
+  }
+
   const percent = normalized.discountPercent || 0;
   const enabled = normalized.discountEnabled || false;
   const price   = normalized.price || 0;
@@ -248,6 +257,14 @@ export const updateProductService = async (id, data) => {
   if (!product) throw new Error('Product not found');
 
   const normalized = normalizeProductData(data);
+
+  // Keep categorySlug in sync whenever categoryId changes (or on first save
+  // for existing products that were created before this fix and have '' slug).
+  const newCategoryId = normalized.categoryId || product.categoryId;
+  if (newCategoryId && (normalized.categoryId || !product.categorySlug)) {
+    const cat = await Category.findByPk(newCategoryId);
+    if (cat) normalized.categorySlug = cat.slug;
+  }
 
   // Auto-calculate discountedPrice when discountPercent changes
   const percent = normalized.discountPercent ?? product.discountPercent;
