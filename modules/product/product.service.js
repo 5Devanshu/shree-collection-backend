@@ -108,6 +108,20 @@ const normalizeProductData = (data) => {
     const normalizedStock = normalizeSizeStock(d.sizeStock);
     d.sizeStock = normalizedStock;
     d.sizes     = normalizedStock.map(s => s.size);
+
+    // The flat `stock` field the admin types into "Stock Count" is NOT used
+    // once sizing is on — it has no meaning ("fallback" doesn't apply to
+    // stock the way it does to price, since every size needs its own real
+    // count). `stock`/`stockStatus` become an aggregate derived from
+    // sizeStock instead, because those two fields are what drive the
+    // storefront listing filters (out-of-stock products are excluded) and
+    // the admin table badge — they must reflect actual per-size
+    // availability, not whatever number happened to be left in that field.
+    const totalStock = normalizedStock.reduce((sum, s) => sum + (s.stock || 0), 0);
+    d.stock = totalStock;
+    d.stockStatus =
+      totalStock === 0 ? 'out_of_stock' :
+      totalStock <= 5  ? 'low_stock'    : 'in_stock';
   }
 
   // Sizing explicitly disabled — clear all size data so stale values can
