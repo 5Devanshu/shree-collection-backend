@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import Cart    from './cart.model.js';
 import Product from '../product/product.model.js';
+import { findSizeEntry, resolveSizePrice } from '../product/product.service.js';
 
 const getOrCreateCart = async (sessionId) => {
   const [cart] = await Cart.findOrCreate({
@@ -9,6 +10,14 @@ const getOrCreateCart = async (sessionId) => {
   });
   return cart;
 };
+
+// Two cart lines are "the same" only if productId AND size match. A product
+// with no sizing has size === null, so it still dedupes normally.
+const normalizeSizeKey = (size) =>
+  size === undefined || size === null || size === '' ? null : Number(size);
+
+const itemsMatch = (item, productId, size) =>
+  item.productId === productId && normalizeSizeKey(item.size) === normalizeSizeKey(size);
 
 export const getCartService = async (sessionId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
@@ -23,38 +32,43 @@ export const getCartCountService = async (sessionId) => {
   return { count };
 };
 
-export const addToCartService = async (sessionId, { productId, quantity = 1 }, isReseller = false) => {
+export const addToCartService = async (sessionId, { productId, size, quantity = 1 }, isReseller = false) => {
   const product = await Product.findByPk(productId);
   if (!product) throw new Error('Product not found');
   if (product.stockStatus === 'out_of_stock') {
     throw new Error(`"${product.title}" is out of stock`);
   }
 
-  // Resolve correct price — reseller beats discount beats retail
-  const resellerPrice  = parseFloat(product.resellerPrice)  || 0;
-  const discountedPrice = parseFloat(product.discountedPrice) || 0;
-  const retailPrice    = parseFloat(product.price)           || 0;
+  // ── Resolve the size, if this product is sized ──────────────────────────
+  const sizeKey   = normalizeSizeKey(size);
+  const sizeEntry = product.sizeEnabled ? findSizeEntry(product, sizeKey) : null;
 
-  const resolvedPrice = isReseller && resellerPrice > 0
-    ? resellerPrice
-    : product.discountEnabled && discountedPrice > 0
-      ? discountedPrice
-      : retailPrice;
+  if (product.sizeEnabled) {
+    if (sizeKey === null) throw new Error(`Please select a size for "${product.title}"`);
+    if (!sizeEntry) throw new Error(`"${product.title}" is not available in the selected size`);
+    if ((sizeEntry.stock || 0) <= 0) {
+      throw new Error(`"${product.title}" (size ${sizeKey}) is out of stock`);
+    }
+  }
+
+  // ── Resolve price — size-specific rate beats the base product price ─────
+  const resolvedPrice = resolveSizePrice(product, sizeEntry, isReseller);
 
   const cart  = await getOrCreateCart(sessionId);
   const items = [...(cart.items || [])];
 
-  const existingIndex = items.findIndex((i) => i.productId === productId);
+  const existingIndex = items.findIndex((i) => itemsMatch(i, productId, sizeKey));
 
   if (existingIndex > -1) {
     items[existingIndex].quantity += quantity;
-    items[existingIndex].price = resolvedPrice;   // update price if role changed
+    items[existingIndex].price = resolvedPrice;   // update price if role/rate changed
   } else {
     items.push({
       productId,
+      size:     sizeKey,
       title:    product.title,
       material: product.material || '',
-      price:    resolvedPrice,                    // ← resolved price
+      price:    resolvedPrice,                    // ← resolved price (size-aware)
       image:    product.imageUrl || '',
       quantity,
     });
@@ -66,12 +80,12 @@ export const addToCartService = async (sessionId, { productId, quantity = 1 }, i
   return cart.toJSON();
 };
 
-export const updateCartItemService = async (sessionId, productId, quantity) => {
+export const updateCartItemService = async (sessionId, productId, quantity, size) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
   let items = [...(cart.items || [])];
-  const itemIndex = items.findIndex((i) => i.productId === productId);
+  const itemIndex = items.findIndex((i) => itemsMatch(i, productId, size));
   if (itemIndex === -1) throw new Error('Item not found in cart');
 
   if (quantity <= 0) {
@@ -86,11 +100,11 @@ export const updateCartItemService = async (sessionId, productId, quantity) => {
   return cart.toJSON();
 };
 
-export const removeFromCartService = async (sessionId, productId) => {
+export const removeFromCartService = async (sessionId, productId, size) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
-  cart.items = (cart.items || []).filter((i) => i.productId !== productId);
+  cart.items = (cart.items || []).filter((i) => !itemsMatch(i, productId, size));
   Cart.recalculate(cart);
   await cart.save();
   return cart.toJSON();

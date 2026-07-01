@@ -34,6 +34,9 @@ export const getCartCount = async (req, res) => {
 
 // POST /api/cart/add
 // Triggered by: "Add to Bag" button on ProductCard & ProductDescription
+// Body: { productId, size?, quantity }
+// `size` is required whenever the product has sizeEnabled — the frontend's
+// size selector must send the chosen size value here.
 export const addToCart = async (req, res) => {
   try {
     const sessionId  = getSessionId(req);
@@ -43,6 +46,7 @@ export const addToCart = async (req, res) => {
       isReseller,
       reseller: req.reseller,
       authHeader: req.headers.authorization?.slice(0, 30),
+      size: req.body?.size,
     });
 
     const cart = await cartService.addToCartService(sessionId, req.body, isReseller);
@@ -54,15 +58,18 @@ export const addToCart = async (req, res) => {
 };
 
 // PATCH /api/cart/item/:productId
-// Updates quantity of a specific cart item
+// Updates quantity of a specific cart item.
+// Body: { quantity, size? } — size distinguishes between two different sizes
+// of the same product sitting in the cart at once.
 export const updateCartItem = async (req, res) => {
   try {
     const sessionId = getSessionId(req);
-    const { quantity } = req.body;
+    const { quantity, size } = req.body;
     const cart = await cartService.updateCartItemService(
       sessionId,
       req.params.productId,
-      quantity
+      quantity,
+      size
     );
     res.status(200).json({ success: true, cart });
   } catch (error) {
@@ -71,13 +78,17 @@ export const updateCartItem = async (req, res) => {
 };
 
 // DELETE /api/cart/item/:productId
-// Removes a single item from cart
+// Removes a single item from cart.
+// Size is read from the query string (?size=2.4) since DELETE requests
+// don't reliably carry a body through all clients/proxies.
 export const removeFromCart = async (req, res) => {
   try {
     const sessionId = getSessionId(req);
+    const size = req.query.size ?? req.body?.size;
     const cart = await cartService.removeFromCartService(
       sessionId,
-      req.params.productId
+      req.params.productId,
+      size
     );
     res.status(200).json({ success: true, cart });
   } catch (error) {

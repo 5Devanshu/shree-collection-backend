@@ -3,9 +3,16 @@ import Product  from './product.model.js';
 import Category from '../category/category.model.js';
 
 // ─── Normalize incoming sizeStock entries from the admin form ─────────────────
-// Admin adds sizes one at a time (chips), each with its own stock. We trust
-// whatever list of {size, stock} pairs the frontend sends — no more range
-// generation. Dedupes by size (last one wins) and sorts ascending.
+// Admin adds sizes one at a time (chips), each with its own stock AND its own
+// price/resellerPrice. We trust whatever list of {size, stock, price,
+// resellerPrice} entries the frontend sends. Dedupes by size (last one wins)
+// and sorts ascending.
+//
+// price / resellerPrice are OPTIONAL per size:
+//   - price === 0        → this size just uses the product's base `price`
+//   - resellerPrice === 0 → this size just uses the product's base `resellerPrice`
+// This lets admins override only the sizes that need a different rate
+// (e.g. a bigger necklace costs more) without having to price every size.
 const normalizeSizeStock = (rawSizeStock) => {
   if (!Array.isArray(rawSizeStock)) return [];
 
@@ -14,10 +21,50 @@ const normalizeSizeStock = (rawSizeStock) => {
     const size  = Number(entry?.size);
     const stock = Number(entry?.stock) || 0;
     if (!Number.isFinite(size)) continue;
-    bySize.set(size, { size, stock });
+
+    const price = Number(entry?.price);
+    const resellerPrice = Number(entry?.resellerPrice);
+
+    bySize.set(size, {
+      size,
+      stock,
+      price:         Number.isFinite(price) && price > 0 ? price : 0,
+      resellerPrice: Number.isFinite(resellerPrice) && resellerPrice > 0 ? resellerPrice : 0,
+    });
   }
 
   return Array.from(bySize.values()).sort((a, b) => a.size - b.size);
+};
+
+// ─── Resolve the effective price for one size entry ───────────────────────────
+// Priority: reseller size-price → reseller base price → discounted size-price
+// → size-price → discounted base price → base price.
+export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
+  const basePrice = Number(product.price) || 0;
+  const hasSizePrice = sizeEntry && Number(sizeEntry.price) > 0;
+  const retailForSize = hasSizePrice ? Number(sizeEntry.price) : basePrice;
+
+  if (isReseller) {
+    const hasSizeResellerPrice = sizeEntry && Number(sizeEntry.resellerPrice) > 0;
+    if (hasSizeResellerPrice) return Number(sizeEntry.resellerPrice);
+    if (Number(product.resellerPrice) > 0 && !hasSizePrice) return Number(product.resellerPrice);
+    // Reseller has no size-specific reseller rate — fall through to
+    // discount/retail logic below, applied to the size's retail price.
+  }
+
+  const percent = Number(product.discountPercent) || 0;
+  if (product.discountEnabled && percent > 0) {
+    return parseFloat((retailForSize - (retailForSize * percent) / 100).toFixed(2));
+  }
+
+  return retailForSize;
+};
+
+// ─── Find the matching sizeStock entry for a given size value ─────────────────
+export const findSizeEntry = (product, size) => {
+  if (!product?.sizeEnabled || size === undefined || size === null || size === '') return null;
+  const list = product.sizeStock || [];
+  return list.find((s) => Number(s.size) === Number(size)) || null;
 };
 
 // ─── Normalize incoming data from frontend ────────────────────────────────────
@@ -83,6 +130,18 @@ const applyDisplayPrice = (productJson, isReseller) => {
       : parseFloat(productJson.price);
     productJson.isResellerPrice = false;
   }
+
+  // Attach a computed `displayPrice` to every sizeStock entry so the
+  // storefront (ProductDescription size selector) can show the correct
+  // price the instant a size chip is picked, without re-deriving discount/
+  // reseller logic on the frontend.
+  if (Array.isArray(productJson.sizeStock) && productJson.sizeStock.length) {
+    productJson.sizeStock = productJson.sizeStock.map((entry) => ({
+      ...entry,
+      displayPrice: resolveSizePrice(productJson, entry, isReseller),
+    }));
+  }
+
   return productJson;
 };
 

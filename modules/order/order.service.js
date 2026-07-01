@@ -5,13 +5,43 @@ import Product from '../product/product.model.js';
 import { sendOrderConfirmationEmail, sendLowStockAlert } from '../../services/brevo.service.js';
 
 // ── Helper: decrement stock for each ordered item + low-stock alerts ──────────
+// Size-aware: if the item was ordered with a `size`, decrement that size's
+// bucket inside sizeStock (and keep the flat `sizes` list in sync), rather
+// than the top-level `stock` field which sized products don't rely on.
 export const decrementStockForItems = async (items) => {
   for (const item of items) {
     const product = await Product.findByPk(item.productId || item.product);
     if (!product) continue;
 
+    const qty = item.quantity || 1;
+    const hasSize = product.sizeEnabled && item.size !== undefined && item.size !== null && item.size !== '';
+
+    if (hasSize) {
+      const sizeStock = [...(product.sizeStock || [])];
+      const idx = sizeStock.findIndex((s) => Number(s.size) === Number(item.size));
+      if (idx === -1) continue;
+
+      const previousSizeStock = sizeStock[idx].stock || 0;
+      const newSizeStock      = Math.max(0, previousSizeStock - qty);
+      sizeStock[idx] = { ...sizeStock[idx], stock: newSizeStock };
+
+      // Aggregate stock across all sizes drives the top-level stockStatus,
+      // matching how sizeStock already feeds `sizes` in product.service.js.
+      const totalStock = sizeStock.reduce((sum, s) => sum + (s.stock || 0), 0);
+      const stockStatus =
+        totalStock === 0 ? 'out_of_stock' :
+        totalStock <= 5  ? 'low_stock'    : 'in_stock';
+
+      await product.update({ sizeStock, stock: totalStock, stockStatus });
+
+      if (newSizeStock <= 5 && previousSizeStock > 5) {
+        await sendLowStockAlert(product);
+      }
+      continue;
+    }
+
     const previousStock = product.stock;
-    const newStock      = Math.max(0, previousStock - (item.quantity || 1));
+    const newStock      = Math.max(0, previousStock - qty);
 
     const stockStatus =
       newStock === 0  ? 'out_of_stock' :

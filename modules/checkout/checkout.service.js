@@ -8,6 +8,7 @@ import Product from '../product/product.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 import Cart from '../cart/cart.model.js';
+import { findSizeEntry, resolveSizePrice } from '../product/product.service.js';
 
 // ─── PhonePe Client (singleton) ───────────────────────────────────────────────
 let phonePeClient;
@@ -23,13 +24,6 @@ const getPhonePeClient = () => {
     );
   }
   return phonePeClient;
-};
-
-// ─── Helper: server-side authoritative price ──────────────────────────────────
-const resolvePrice = (product, isReseller) => {
-  if (isReseller && Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
-  if (product.discountEnabled && Number(product.discountedPrice) > 0) return Number(product.discountedPrice);
-  return Number(product.price);
 };
 
 // ─── Helper: authoritative delivery charge ────────────────────────────────────
@@ -59,7 +53,22 @@ export const validateCartService = async (items, isReseller = false) => {
       throw new Error(`"${product.title}" is currently out of stock`);
     }
 
-    const expectedPrice = resolvePrice(product, isReseller);
+    // ── Size validation ──────────────────────────────────────────────────
+    let sizeEntry = null;
+    if (product.sizeEnabled) {
+      if (item.size === undefined || item.size === null || item.size === '') {
+        throw new Error(`Please select a size for "${product.title}"`);
+      }
+      sizeEntry = findSizeEntry(product, item.size);
+      if (!sizeEntry) {
+        throw new Error(`"${product.title}" is not available in the selected size`);
+      }
+      if ((sizeEntry.stock || 0) < (item.quantity || 1)) {
+        throw new Error(`"${product.title}" (size ${item.size}) doesn't have enough stock`);
+      }
+    }
+
+    const expectedPrice = resolveSizePrice(product, sizeEntry, isReseller);
 
     if (Number(item.price) !== expectedPrice) {
       throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
@@ -67,6 +76,7 @@ export const validateCartService = async (items, isReseller = false) => {
 
     validated.push({
       productId: product.id,
+      size:      product.sizeEnabled ? Number(item.size) : null,
       title:     product.title,
       material:  product.material,
       price:     expectedPrice,

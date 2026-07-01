@@ -20,7 +20,12 @@ const Cart = sequelize.define(
       unique: true,
     },
 
-    // Cart items snapshot — [{ productId, title, material, price, image, quantity }]
+    // Cart items snapshot —
+    // [{ productId, size, title, material, price, image, quantity }]
+    // `size` is null/undefined for products without sizing. Two items with the
+    // same productId but different sizes are separate lines (see cart.service.js
+    // itemsMatch()). `price` is the resolved size-specific rate when the
+    // product has a per-size price, otherwise the base product price.
     // Stored as JSONB — no separate join table needed
     items: {
       type: DataTypes.JSONB,
