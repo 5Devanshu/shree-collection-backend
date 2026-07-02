@@ -61,8 +61,18 @@ export const searchProductsService = async ({
     limit:   Number(limit),
   });
 
+  const backendUrl = process.env.BACKEND_URL || 'https://shree-collection-backend-production.up.railway.app';
+
   return {
-    products:   rows.map(p => p.toJSON()),
+    products:   rows.map(p => {
+      const json = p.toJSON();
+      // Reconstruct imageUrl from imageKey when the stored URL is empty
+      // (products uploaded before the R2 storage fix)
+      if (!json.imageUrl && json.imageKey) {
+        json.imageUrl = `${backendUrl}/api/media/file/${encodeURIComponent(json.imageKey)}`;
+      }
+      return json;
+    }),
     total:      count,
     totalPages: Math.ceil(count / Number(limit)),
     page:       Number(page),
@@ -84,19 +94,28 @@ export const getSearchSuggestionsService = async (q, limit = 6) => {
         { material: { [Op.iLike]: `%${q.trim()}%` } },
       ],
     },
-    attributes: ['id', 'title', 'material', 'price', 'imageUrl', 'resellerPrice', 'discountEnabled', 'discountedPrice'],
+    attributes: ['id', 'title', 'material', 'price', 'imageUrl', 'imageKey', 'resellerPrice', 'discountEnabled', 'discountedPrice'],
     limit: Number(limit),
     order: [['createdAt', 'DESC']],
   });
 
-  return products.map(p => ({
-    id:       p.id,
-    title:    p.title,
-    material: p.material,
-    price:    Number(p.price),
-    image:    p.imageUrl || '',
-    url:      `/product/${p.id}`,
-  }));
+  const backendUrl = process.env.BACKEND_URL || 'https://shree-collection-backend-production.up.railway.app';
+
+  return products.map(p => {
+    // imageUrl is stored as the full proxy URL from uploadToS3.
+    // If it's empty (products uploaded before the storage fix), reconstruct
+    // it from imageKey which is always stored as the raw S3 key.
+    const image = p.imageUrl
+      || (p.imageKey ? `${backendUrl}/api/media/file/${encodeURIComponent(p.imageKey)}` : '');
+    return {
+      id:       p.id,
+      title:    p.title,
+      material: p.material,
+      price:    Number(p.price),
+      image,
+      url:      `/product/${p.id}`,
+    };
+  });
 };
 
 // ─── Category name search ─────────────────────────────────────────────────────
