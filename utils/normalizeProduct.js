@@ -19,15 +19,20 @@ export const normalizeProduct = (product) => {
   
   // ✅ CRITICAL: Extract image URL as STRING, not object
   // Image can come in multiple formats:
-  // 1. mainImage: "https://..." (string)
-  // 2. mainImage: { url: "https://...", publicId: "..." } (object)
-  // 3. image: "https://..." (string)
-  // 4. image: { url: "https://...", publicId: "..." } (object)
+  // 1. imageUrl: "https://..." (Sequelize/PostgreSQL field — current stack)
+  // 2. mainImage: "https://..." (string)
+  // 3. mainImage: { url: "https://...", publicId: "..." } (object)
+  // 4. image: "https://..." (string)
+  // 5. image: { url: "https://...", publicId: "..." } (object)
   
   let imageUrl = '';
   
-  // Try mainImage first
-  if (typeof productObj.mainImage === 'string' && productObj.mainImage) {
+  // Sequelize stores it as imageUrl — check this first
+  if (typeof productObj.imageUrl === 'string' && productObj.imageUrl) {
+    imageUrl = productObj.imageUrl;
+  }
+  // Try mainImage next
+  else if (typeof productObj.mainImage === 'string' && productObj.mainImage) {
     imageUrl = productObj.mainImage;
   } else if (productObj.mainImage && typeof productObj.mainImage === 'object' && productObj.mainImage.url) {
     imageUrl = productObj.mainImage.url;
@@ -49,27 +54,36 @@ export const normalizeProduct = (product) => {
     : (productObj.gallery || []);
 
   return {
-    _id: productObj._id,
+    id: productObj.id || productObj._id,      // Sequelize uses id
+    _id: productObj._id || productObj.id,     // Mongoose compat
     name,
-    title: name, // Include both for compatibility
+    title: name,
     description: productObj.description,
     categorySlug: productObj.categorySlug,
     category: productObj.category,
     price: productObj.price,
+    resellerPrice: productObj.resellerPrice,
     discountEnabled: productObj.discountEnabled,
     discountedPrice: productObj.discountedPrice,
+    discountPercent: productObj.discountPercent || productObj.discountPercentage || 0,
     discountPercentage: productObj.discountPercent || productObj.discountPercentage || 0,
     stock: productObj.stock,
+    stockStatus: productObj.stockStatus,
     images: images,
-    gallery: images, // Include both for compatibility
-    mainImage: imageUrl,  // ✅ Always a string
-    image: imageUrl,      // ✅ Always a string (frontend uses this)
+    gallery: images,
+    imageUrl,                // ✅ Sequelize field — ProductCard reads this
+    mainImage: imageUrl,
+    image: imageUrl,
     tags: productObj.tags || [],
     featured: productObj.featured || productObj.isFeatured || false,
     isFeatured: productObj.featured || productObj.isFeatured || false,
     material: productObj.material,
     details: productObj.details || [],
-    stockStatus: productObj.stockStatus,
+    sizeEnabled: productObj.sizeEnabled || false,
+    sizeLabel: productObj.sizeLabel || '',
+    sizeStock: productObj.sizeStock || [],
+    sizes: productObj.sizes || [],
+    sku: productObj.sku || '',
     delivery: productObj.delivery,
     returns: productObj.returns,
     createdAt: productObj.createdAt,
