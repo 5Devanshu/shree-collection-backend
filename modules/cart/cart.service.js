@@ -1,7 +1,10 @@
 import { Op } from 'sequelize';
 import Cart    from './cart.model.js';
 import Product from '../product/product.model.js';
-import { findSizeEntry, resolveSizePrice, resolveSizeImage, resolveSizeColor } from '../product/product.service.js';
+import {
+  findSizeEntry, findColorVariant,
+  resolveSizePrice, resolveVariantImage, resolveVariantStock,
+} from '../product/product.service.js';
 
 const getOrCreateCart = async (sessionId) => {
   const [cart] = await Cart.findOrCreate({
@@ -11,13 +14,22 @@ const getOrCreateCart = async (sessionId) => {
   return cart;
 };
 
-// Two cart lines are "the same" only if productId AND size match. A product
-// with no sizing has size === null, so it still dedupes normally.
 const normalizeSizeKey = (size) =>
   size === undefined || size === null || size === '' ? null : Number(size);
 
-const itemsMatch = (item, productId, size) =>
-  item.productId === productId && normalizeSizeKey(item.size) === normalizeSizeKey(size);
+// Colour is compared case-insensitively as free text (matches
+// findColorVariant's own matching rule).
+const normalizeColorKey = (color) =>
+  color === undefined || color === null || color === '' ? null : String(color).trim().toLowerCase();
+
+// Two cart lines are "the same" only if productId AND size AND colour all
+// match. A product with no sizing has size === null and colour === null, so
+// it still dedupes normally. Two different colours of the same size are now
+// separate lines, same as two different sizes always were.
+const itemsMatch = (item, productId, size, color) =>
+  item.productId === productId &&
+  normalizeSizeKey(item.size)   === normalizeSizeKey(size) &&
+  normalizeColorKey(item.color) === normalizeColorKey(color);
 
 export const getCartService = async (sessionId) => {
   const cart = await Cart.findOne({ where: { sessionId } });
@@ -32,7 +44,7 @@ export const getCartCountService = async (sessionId) => {
   return { count };
 };
 
-export const addToCartService = async (sessionId, { productId, size, quantity = 1 }, isReseller = false) => {
+export const addToCartService = async (sessionId, { productId, size, color, quantity = 1 }, isReseller = false) => {
   const product = await Product.findByPk(productId);
   if (!product) throw new Error('Product not found');
   if (product.stockStatus === 'out_of_stock') {
@@ -43,38 +55,59 @@ export const addToCartService = async (sessionId, { productId, size, quantity = 
   const sizeKey   = normalizeSizeKey(size);
   const sizeEntry = product.sizeEnabled ? findSizeEntry(product, sizeKey) : null;
 
+  // ── Resolve the colour variant, if this size has colour options ─────────
+  // A size with colours REQUIRES one to be picked; a size with none behaves
+  // exactly like before (no colour selection needed).
+  let colorVariant = null;
+
   if (product.sizeEnabled) {
     if (sizeKey === null) throw new Error(`Please select a size for "${product.title}"`);
     if (!sizeEntry) throw new Error(`"${product.title}" is not available in the selected size`);
-    if ((sizeEntry.stock || 0) <= 0) {
-      throw new Error(`"${product.title}" (size ${sizeKey}) is out of stock`);
+
+    const hasColorOptions = Array.isArray(sizeEntry.colors) && sizeEntry.colors.length > 0;
+
+    if (hasColorOptions) {
+      if (!color) throw new Error(`Please select a colour for "${product.title}" (size ${sizeKey})`);
+      colorVariant = findColorVariant(sizeEntry, color);
+      if (!colorVariant) {
+        throw new Error(`"${product.title}" is not available in the selected colour for size ${sizeKey}`);
+      }
+    }
+
+    const stockAvailable = resolveVariantStock(sizeEntry, colorVariant);
+    if (stockAvailable <= 0) {
+      const label = colorVariant ? `${sizeKey}, ${colorVariant.color}` : `${sizeKey}`;
+      throw new Error(`"${product.title}" (size ${label}) is out of stock`);
     }
   }
 
-  // ── Resolve price/image/color — size-specific values beat the base product ──
+  // ── Resolve price/image — price is size-level only; image is colour-aware ──
   const resolvedPrice = resolveSizePrice(product, sizeEntry, isReseller);
-  const resolvedImage = product.sizeEnabled ? resolveSizeImage(product, sizeEntry) : (product.imageUrl || '');
-  const resolvedColor = product.sizeEnabled ? resolveSizeColor(product, sizeEntry) : (product.colour || '');
+  const resolvedImage = product.sizeEnabled
+    ? resolveVariantImage(product, colorVariant)
+    : (product.imageUrl || '');
+  const resolvedColor = colorVariant?.color || (!product.sizeEnabled ? (product.colour || '') : '');
+  const colorKey       = resolvedColor || null;
 
   const cart  = await getOrCreateCart(sessionId);
   const items = [...(cart.items || [])];
 
-  const existingIndex = items.findIndex((i) => itemsMatch(i, productId, sizeKey));
+  const existingIndex = items.findIndex((i) => itemsMatch(i, productId, sizeKey, colorKey));
 
   if (existingIndex > -1) {
     items[existingIndex].quantity += quantity;
-    items[existingIndex].price = resolvedPrice;   // update price if role/rate changed
+    items[existingIndex].price = resolvedPrice;
     items[existingIndex].image = resolvedImage;
-    items[existingIndex].color = resolvedColor;
+    items[existingIndex].color = colorKey;
   } else {
     items.push({
       productId,
       size:     sizeKey,
+      color:    colorKey,
       title:    product.title,
       material: product.material || '',
-      price:    resolvedPrice,                    // ← resolved price (size-aware)
-      image:    resolvedImage,                    // ← resolved image (size-aware)
-      color:    resolvedColor,                    // ← resolved colour (size-aware)
+      price:    resolvedPrice,
+      image:    resolvedImage,
       quantity,
     });
   }
@@ -85,12 +118,12 @@ export const addToCartService = async (sessionId, { productId, size, quantity = 
   return cart.toJSON();
 };
 
-export const updateCartItemService = async (sessionId, productId, quantity, size) => {
+export const updateCartItemService = async (sessionId, productId, quantity, size, color) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
   let items = [...(cart.items || [])];
-  const itemIndex = items.findIndex((i) => itemsMatch(i, productId, size));
+  const itemIndex = items.findIndex((i) => itemsMatch(i, productId, size, color));
   if (itemIndex === -1) throw new Error('Item not found in cart');
 
   if (quantity <= 0) {
@@ -105,11 +138,11 @@ export const updateCartItemService = async (sessionId, productId, quantity, size
   return cart.toJSON();
 };
 
-export const removeFromCartService = async (sessionId, productId, size) => {
+export const removeFromCartService = async (sessionId, productId, size, color) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
-  cart.items = (cart.items || []).filter((i) => !itemsMatch(i, productId, size));
+  cart.items = (cart.items || []).filter((i) => !itemsMatch(i, productId, size, color));
   Cart.recalculate(cart);
   await cart.save();
   return cart.toJSON();

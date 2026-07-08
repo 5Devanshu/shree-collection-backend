@@ -8,7 +8,10 @@ import Product from '../product/product.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 import Cart from '../cart/cart.model.js';
-import { findSizeEntry, resolveSizePrice, resolveSizeImage, resolveSizeColor } from '../product/product.service.js';
+import {
+  findSizeEntry, findColorVariant,
+  resolveSizePrice, resolveVariantImage,
+} from '../product/product.service.js';
 
 // ─── PhonePe Client (singleton) ───────────────────────────────────────────────
 let phonePeClient;
@@ -27,8 +30,6 @@ const getPhonePeClient = () => {
 };
 
 // ─── Helper: authoritative delivery charge ────────────────────────────────────
-// Customer: FREE at ₹500+, else ₹70 (Maharashtra) / ₹90 (other state)
-// Reseller: ALWAYS charged ₹70 (Maharashtra) / ₹90 (other state) — no free threshold
 const FREE_DELIVERY_THRESHOLD = { customer: 500, reseller: Infinity };
 const DELIVERY_CHARGE         = { maharashtra: 70, other: 90 };
 
@@ -53,8 +54,10 @@ export const validateCartService = async (items, isReseller = false) => {
       throw new Error(`"${product.title}" is currently out of stock`);
     }
 
-    // ── Size validation ──────────────────────────────────────────────────
-    let sizeEntry = null;
+    // ── Size + colour validation ─────────────────────────────────────────
+    let sizeEntry    = null;
+    let colorVariant = null;
+
     if (product.sizeEnabled) {
       if (item.size === undefined || item.size === null || item.size === '') {
         throw new Error(`Please select a size for "${product.title}"`);
@@ -63,7 +66,20 @@ export const validateCartService = async (items, isReseller = false) => {
       if (!sizeEntry) {
         throw new Error(`"${product.title}" is not available in the selected size`);
       }
-      if ((sizeEntry.stock || 0) < (item.quantity || 1)) {
+
+      const hasColorOptions = Array.isArray(sizeEntry.colors) && sizeEntry.colors.length > 0;
+      if (hasColorOptions) {
+        if (!item.color) {
+          throw new Error(`Please select a colour for "${product.title}" (size ${item.size})`);
+        }
+        colorVariant = findColorVariant(sizeEntry, item.color);
+        if (!colorVariant) {
+          throw new Error(`"${product.title}" is not available in the selected colour for size ${item.size}`);
+        }
+        if ((colorVariant.stock || 0) < (item.quantity || 1)) {
+          throw new Error(`"${product.title}" (size ${item.size}, ${colorVariant.color}) doesn't have enough stock`);
+        }
+      } else if ((sizeEntry.stock || 0) < (item.quantity || 1)) {
         throw new Error(`"${product.title}" (size ${item.size}) doesn't have enough stock`);
       }
     }
@@ -74,19 +90,20 @@ export const validateCartService = async (items, isReseller = false) => {
       throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
     }
 
-    // ── Image/colour — size-specific override beats the base product ──────
-    const resolvedImage = product.sizeEnabled ? resolveSizeImage(product, sizeEntry) : (product.imageUrl || '');
-    const resolvedColor = product.sizeEnabled ? resolveSizeColor(product, sizeEntry) : (product.colour || '');
+    const resolvedImage = product.sizeEnabled
+      ? resolveVariantImage(product, colorVariant)
+      : (product.imageUrl || '');
+    const resolvedColor = colorVariant?.color || (!product.sizeEnabled ? (product.colour || '') : (item.color || ''));
 
     validated.push({
       productId: product.id,
       size:      product.sizeEnabled ? Number(item.size) : null,
+      color:     resolvedColor || null,
       title:     product.title,
       material:  product.material,
       price:     expectedPrice,
       quantity:  item.quantity || 1,
       image:     resolvedImage,
-      color:     resolvedColor,
     });
   }
 
@@ -94,8 +111,6 @@ export const validateCartService = async (items, isReseller = false) => {
 };
 
 // ─── Step 2: Calculate Totals ─────────────────────────────────────────────────
-// NOTE: caller MUST pass { isReseller, state } or every sub-threshold customer
-// defaults to ₹90 and resellers get treated as customers.
 export const calculateTotalsService = (validatedItems, { isReseller = false, state = '' } = {}) => {
   const subtotal     = validatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const shippingCost = calculateDeliveryCharge({ subtotal, isReseller, state });

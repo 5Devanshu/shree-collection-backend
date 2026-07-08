@@ -2,70 +2,68 @@ import { Op } from 'sequelize';
 import Product  from './product.model.js';
 import Category from '../category/category.model.js';
 
+// ─── Normalize a size's colour variants ────────────────────────────────────────
+// Each size can now have MULTIPLE colours, each with its own stock and photo —
+// e.g. size 2.4 might come in Rose Gold (6 left, its own photo) and Yellow
+// Gold (2 left, a different photo). A colour name is required for a variant
+// to count (an untitled variant is meaningless — the customer needs a label
+// to pick between). Dedupes by colour name (case-insensitive, last one wins).
+const normalizeColorVariants = (rawColors) => {
+  if (!Array.isArray(rawColors)) return [];
+
+  const byColor = new Map();
+  for (const c of rawColors) {
+    const color = typeof c?.color === 'string' ? c.color.trim() : '';
+    if (!color) continue;
+
+    const stock    = Number(c?.stock) || 0;
+    const image    = typeof c?.image === 'string' ? c.image : '';
+    const imageKey = typeof c?.imageKey === 'string' ? c.imageKey : '';
+
+    byColor.set(color.toLowerCase(), { color, stock, image, imageKey });
+  }
+  return Array.from(byColor.values());
+};
+
 // ─── Normalize incoming sizeStock entries from the admin form ─────────────────
-// Admin adds sizes one at a time (chips), each with its own stock AND its own
-// price/resellerPrice. We trust whatever list of {size, stock, price,
-// resellerPrice} entries the frontend sends. Dedupes by size (last one wins)
-// and sorts ascending.
-//
-// price / resellerPrice are OPTIONAL per size:
-//   - price === 0        → this size just uses the product's base `price`
-//   - resellerPrice === 0 → this size just uses the product's base `resellerPrice`
-// This lets admins override only the sizes that need a different rate
-// (e.g. a bigger necklace costs more) without having to price every size.
+// Admin adds sizes one at a time (chips), each with its own price/resellerPrice
+// (price/resellerPrice fallback logic unchanged) and, optionally, one or more
+// colour variants. When a size HAS colour variants, that size's stock is the
+// SUM of its variants' stock (colour is where availability is actually tracked
+// once colours are in play) — mirroring how the product's total stock is the
+// sum of every size's stock. A size with no colour variants keeps working
+// exactly as before (a single stock number for that size).
 const normalizeSizeStock = (rawSizeStock) => {
   if (!Array.isArray(rawSizeStock)) return [];
 
   const bySize = new Map();
   for (const entry of rawSizeStock) {
-    const size  = Number(entry?.size);
-    const stock = Number(entry?.stock) || 0;
+    const size = Number(entry?.size);
     if (!Number.isFinite(size)) continue;
 
-    const price = Number(entry?.price);
+    const price         = Number(entry?.price);
     const resellerPrice = Number(entry?.resellerPrice);
+    const colors         = normalizeColorVariants(entry?.colors);
 
-    // Per-size colour — optional, falls back to product's base `colour`
-    const color = typeof entry?.color === 'string' ? entry.color.trim() : '';
-
-    // Per-size image — admin uploads via the same /api/media/upload flow
-    // used for the main product image, then attaches { url, key } here.
-    // Falls back to the product's main imageUrl when left blank.
-    const image    = typeof entry?.image === 'string' ? entry.image : '';
-    const imageKey = typeof entry?.imageKey === 'string' ? entry.imageKey : '';
+    const stock = colors.length > 0
+      ? colors.reduce((sum, c) => sum + c.stock, 0)
+      : Number(entry?.stock) || 0;
 
     bySize.set(size, {
       size,
       stock,
       price:         Number.isFinite(price) && price > 0 ? price : 0,
       resellerPrice: Number.isFinite(resellerPrice) && resellerPrice > 0 ? resellerPrice : 0,
-      color,
-      image,
-      imageKey,
+      colors,
     });
   }
 
   return Array.from(bySize.values()).sort((a, b) => a.size - b.size);
 };
 
-// ─── Resolve the effective image for one size entry ───────────────────────────
-export const resolveSizeImage = (product, sizeEntry) => {
-  if (sizeEntry?.image) return sizeEntry.image;
-  return product.imageUrl || '';
-};
-
-// ─── Resolve the effective colour for one size entry ───────────────────────────
-export const resolveSizeColor = (product, sizeEntry) => {
-  if (sizeEntry?.color) return sizeEntry.color;
-  return product.colour || '';
-};
-
 // ─── Resolve the effective price for one size entry ───────────────────────────
-// Two independent fallback chains — a size's customer-rate override does NOT
-// affect whether the reseller rate falls back to the base reseller price.
-//   Reseller: size resellerPrice → base resellerPrice → (size price or base
-//             price, discounted if enabled)
-//   Customer: size price → base price (discounted if enabled)
+// Unchanged — price/resellerPrice still live at the SIZE level, not per
+// colour. You didn't ask for per-colour pricing, only per-colour look/stock.
 export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
   const basePrice = Number(product.price) || 0;
   const hasSizePrice = sizeEntry && Number(sizeEntry.price) > 0;
@@ -75,9 +73,6 @@ export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
     const hasSizeResellerPrice = sizeEntry && Number(sizeEntry.resellerPrice) > 0;
     if (hasSizeResellerPrice) return Number(sizeEntry.resellerPrice);
     if (Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
-    // Neither this size nor the product has a reseller rate — reseller pays
-    // the same (possibly size-specific, possibly discounted) rate as a
-    // customer for this size. Falls through below.
   }
 
   const percent = Number(product.discountPercent) || 0;
@@ -95,11 +90,38 @@ export const findSizeEntry = (product, size) => {
   return list.find((s) => Number(s.size) === Number(size)) || null;
 };
 
+// ─── Find the matching colour variant within a size entry ─────────────────────
+// Returns null if the size has no colour variants at all, OR if `color` is
+// blank/unmatched. Callers decide whether a null result means "colour isn't
+// required for this size" vs "the requested colour doesn't exist" — that
+// distinction depends on whether sizeEntry.colors is empty or non-empty.
+export const findColorVariant = (sizeEntry, color) => {
+  if (!sizeEntry || !Array.isArray(sizeEntry.colors) || sizeEntry.colors.length === 0) return null;
+  if (color === undefined || color === null || color === '') return null;
+  const key = String(color).trim().toLowerCase();
+  return sizeEntry.colors.find((c) => c.color.toLowerCase() === key) || null;
+};
+
+// ─── Resolve the effective image for a chosen size + colour ───────────────────
+// Colour variant's own photo wins; falls back to the product's main image
+// whenever the variant has none, or no colour was chosen (unsized/no-colour case).
+export const resolveVariantImage = (product, colorVariant) => {
+  if (colorVariant?.image) return colorVariant.image;
+  return product.imageUrl || '';
+};
+
+// ─── Resolve the effective stock for a chosen size + colour ───────────────────
+// Colour variant's own stock wins when present; otherwise falls back to the
+// size's aggregate stock (sizes with no colour variants at all).
+export const resolveVariantStock = (sizeEntry, colorVariant) => {
+  if (colorVariant) return Number(colorVariant.stock) || 0;
+  return Number(sizeEntry?.stock) || 0;
+};
+
 // ─── Normalize incoming data from frontend ────────────────────────────────────
 const normalizeProductData = (data) => {
   const d = { ...data };
 
-  // Frontend sends image as { url, key } object or flat string → map to imageUrl
   if (d.image !== undefined) {
     if (typeof d.image === 'object' && d.image?.url) {
       d.imageUrl = d.image.url;
@@ -110,37 +132,22 @@ const normalizeProductData = (data) => {
     delete d.image;
   }
 
-  // Frontend sends category UUID as `category` → map to categoryId
   if (d.category && !d.categoryId) {
     d.categoryId = d.category;
     delete d.category;
   }
 
-  // Auto-derive stockStatus from stock count if not explicitly provided
   if (d.stock !== undefined && d.stockStatus === undefined) {
     const s = Number(d.stock);
     d.stockStatus = s === 0 ? 'out_of_stock' : s <= 5 ? 'low_stock' : 'in_stock';
   }
 
   // ── Sizing ──────────────────────────────────────────────────────────────
-  // sizeEnabled is the single source of truth for whether a size selector
-  // shows on the storefront (desktop or mobile). Sizes are no longer
-  // generated from a min/max/step range — the admin adds each size
-  // individually (e.g. 2.4, 2.6, 2.8), and `sizes` is just the list of
-  // those values, sorted, with `sizeStock` holding the per-size stock.
   if (d.sizeEnabled) {
     const normalizedStock = normalizeSizeStock(d.sizeStock);
     d.sizeStock = normalizedStock;
     d.sizes     = normalizedStock.map(s => s.size);
 
-    // The flat `stock` field the admin types into "Stock Count" is NOT used
-    // once sizing is on — it has no meaning ("fallback" doesn't apply to
-    // stock the way it does to price, since every size needs its own real
-    // count). `stock`/`stockStatus` become an aggregate derived from
-    // sizeStock instead, because those two fields are what drive the
-    // storefront listing filters (out-of-stock products are excluded) and
-    // the admin table badge — they must reflect actual per-size
-    // availability, not whatever number happened to be left in that field.
     const totalStock = normalizedStock.reduce((sum, s) => sum + (s.stock || 0), 0);
     d.stock = totalStock;
     d.stockStatus =
@@ -148,11 +155,6 @@ const normalizeProductData = (data) => {
       totalStock <= 5  ? 'low_stock'    : 'in_stock';
   }
 
-  // Sizing explicitly disabled — clear all size data so stale values can
-  // never leak onto the storefront. This is what fixes the bug where a
-  // size selector appeared on mobile even when the admin didn't add sizes:
-  // previously the frontend inferred sizing from category name or leftover
-  // array contents instead of checking one explicit flag.
   if (d.sizeEnabled === false) {
     d.sizes     = [];
     d.sizeStock = [];
@@ -173,17 +175,18 @@ const applyDisplayPrice = (productJson, isReseller) => {
     productJson.isResellerPrice = false;
   }
 
-  // Attach a computed `displayPrice` to every sizeStock entry so the
-  // storefront (ProductDescription size selector) can show the correct
-  // price the instant a size chip is picked, without re-deriving discount/
-  // reseller logic on the frontend.
   if (Array.isArray(productJson.sizeStock) && productJson.sizeStock.length) {
-    productJson.sizeStock = productJson.sizeStock.map((entry) => ({
-      ...entry,
-      displayPrice: resolveSizePrice(productJson, entry, isReseller),
-      displayImage: resolveSizeImage(productJson, entry),
-      displayColor: resolveSizeColor(productJson, entry),
-    }));
+    productJson.sizeStock = productJson.sizeStock.map((entry) => {
+      const hasColors = Array.isArray(entry.colors) && entry.colors.length > 0;
+      return {
+        ...entry,
+        displayPrice: resolveSizePrice(productJson, entry, isReseller),
+        // Only meaningful when this size has NO colour variants of its own —
+        // the frontend shows a colour picker instead when hasColors is true.
+        displayImage: hasColors ? null : (productJson.imageUrl || ''),
+        displayColor: hasColors ? null : (productJson.colour   || ''),
+      };
+    });
   }
 
   return productJson;
@@ -254,10 +257,6 @@ export const getProductByIdService = async (id, isReseller = false) => {
 export const createProductService = async (data) => {
   const normalized = normalizeProductData(data);
 
-  // Populate categorySlug from the Category row — this field drives the
-  // /collections/:slug storefront pages and the "related products" query.
-  // Without it every product has categorySlug='' and never appears on its
-  // category page even though categoryId is set correctly.
   if (normalized.categoryId) {
     const cat = await Category.findByPk(normalized.categoryId);
     if (cat) normalized.categorySlug = cat.slug;
@@ -284,15 +283,12 @@ export const updateProductService = async (id, data) => {
 
   const normalized = normalizeProductData(data);
 
-  // Keep categorySlug in sync whenever categoryId changes (or on first save
-  // for existing products that were created before this fix and have '' slug).
   const newCategoryId = normalized.categoryId || product.categoryId;
   if (newCategoryId && (normalized.categoryId || !product.categorySlug)) {
     const cat = await Category.findByPk(newCategoryId);
     if (cat) normalized.categorySlug = cat.slug;
   }
 
-  // Auto-calculate discountedPrice when discountPercent changes
   const percent = normalized.discountPercent ?? product.discountPercent;
   const enabled = normalized.discountEnabled ?? product.discountEnabled;
   const price   = normalized.price ?? product.price;

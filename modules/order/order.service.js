@@ -2,12 +2,14 @@ import { Op } from 'sequelize';
 import { Parser } from 'json2csv';
 import Order   from './order.model.js';
 import Product from '../product/product.model.js';
+import { findColorVariant } from '../product/product.service.js';
 import { sendOrderConfirmationEmail, sendLowStockAlert } from '../../services/brevo.service.js';
 
 // ── Helper: decrement stock for each ordered item + low-stock alerts ──────────
-// Size-aware: if the item was ordered with a `size`, decrement that size's
-// bucket inside sizeStock (and keep the flat `sizes` list in sync), rather
-// than the top-level `stock` field which sized products don't rely on.
+// Size- and colour-aware. When the ordered size has colour variants, the
+// decrement happens on that specific colour's stock (and the size's aggregate
+// stock is recomputed as the sum of its colours) — otherwise it falls back to
+// the size's own stock exactly as before.
 export const decrementStockForItems = async (items) => {
   for (const item of items) {
     const product = await Product.findByPk(item.productId || item.product);
@@ -21,12 +23,42 @@ export const decrementStockForItems = async (items) => {
       const idx = sizeStock.findIndex((s) => Number(s.size) === Number(item.size));
       if (idx === -1) continue;
 
-      const previousSizeStock = sizeStock[idx].stock || 0;
-      const newSizeStock      = Math.max(0, previousSizeStock - qty);
-      sizeStock[idx] = { ...sizeStock[idx], stock: newSizeStock };
+      const sizeEntry     = sizeStock[idx];
+      const hasColorOptions = Array.isArray(sizeEntry.colors) && sizeEntry.colors.length > 0;
 
-      // Aggregate stock across all sizes drives the top-level stockStatus,
-      // matching how sizeStock already feeds `sizes` in product.service.js.
+      if (hasColorOptions) {
+        const colorVariant = findColorVariant(sizeEntry, item.color);
+        if (!colorVariant) continue;
+
+        const colors = sizeEntry.colors.map((c) =>
+          c.color.toLowerCase() === colorVariant.color.toLowerCase()
+            ? { ...c, stock: Math.max(0, (c.stock || 0) - qty) }
+            : c
+        );
+        const previousColorStock = colorVariant.stock || 0;
+        const newColorStock      = Math.max(0, previousColorStock - qty);
+        const newSizeStock       = colors.reduce((sum, c) => sum + (c.stock || 0), 0);
+
+        sizeStock[idx] = { ...sizeEntry, colors, stock: newSizeStock };
+
+        const totalStock = sizeStock.reduce((sum, s) => sum + (s.stock || 0), 0);
+        const stockStatus =
+          totalStock === 0 ? 'out_of_stock' :
+          totalStock <= 5  ? 'low_stock'    : 'in_stock';
+
+        await product.update({ sizeStock, stock: totalStock, stockStatus });
+
+        if (newColorStock <= 5 && previousColorStock > 5) {
+          await sendLowStockAlert(product);
+        }
+        continue;
+      }
+
+      // ── No colour variants for this size — same as before ──────────────
+      const previousSizeStock = sizeEntry.stock || 0;
+      const newSizeStock      = Math.max(0, previousSizeStock - qty);
+      sizeStock[idx] = { ...sizeEntry, stock: newSizeStock };
+
       const totalStock = sizeStock.reduce((sum, s) => sum + (s.stock || 0), 0);
       const stockStatus =
         totalStock === 0 ? 'out_of_stock' :
@@ -80,7 +112,6 @@ export const createOrderService = async (data) => {
 };
 
 // ── Get all orders (AdminOrders table) ────────────────────────────────────────
-// buyerType: 'reseller' → resellerId set · 'customer' → resellerId null (incl. guests)
 export const getAllOrdersService = async ({ page = 1, limit = 20, status, buyerType } = {}) => {
   const where = {};
   if (status) where.status = status;
@@ -103,11 +134,7 @@ export const getAllOrdersService = async ({ page = 1, limit = 20, status, buyerT
   return { orders, total, page: Number(page), limit: Number(limit) };
 };
 
-// ── ADD this function anywhere in order.service.js, e.g. after getAllOrdersService ──
-
 // ── My Orders (reseller's own order history) ──────────────────────────────────
-// Unlike getAllOrdersService (admin, sees everyone), this is scoped to a single
-// resellerId so a reseller can only ever see their own orders.
 export const getResellerOrdersService = async (resellerId, { page = 1, limit = 20, status } = {}) => {
   const where = { resellerId };
   if (status) where.status = status;
@@ -127,16 +154,16 @@ export const getResellerOrdersService = async (resellerId, { page = 1, limit = 2
 export const getCustomerOrdersService = async (customerId, { page = 1, limit = 20, status } = {}) => {
   const where = { customerId };
   if (status) where.status = status;
- 
+
   const offset = (Number(page) - 1) * Number(limit);
- 
+
   const { rows: orders, count: total } = await Order.findAndCountAll({
     where,
     order:  [['createdAt', 'DESC']],
     offset,
     limit:  Number(limit),
   });
- 
+
   return { orders, total, page: Number(page), limit: Number(limit) };
 };
 
