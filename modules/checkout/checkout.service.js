@@ -8,7 +8,7 @@ import Product from '../product/product.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 import Cart from '../cart/cart.model.js';
-import { findSizeEntry, resolveSizePrice } from '../product/product.service.js';
+import { findSizeEntry, resolveSizePrice, resolveSizeImage, resolveSizeColor } from '../product/product.service.js';
 
 // ─── PhonePe Client (singleton) ───────────────────────────────────────────────
 let phonePeClient;
@@ -74,6 +74,10 @@ export const validateCartService = async (items, isReseller = false) => {
       throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
     }
 
+    // ── Image/colour — size-specific override beats the base product ──────
+    const resolvedImage = product.sizeEnabled ? resolveSizeImage(product, sizeEntry) : (product.imageUrl || '');
+    const resolvedColor = product.sizeEnabled ? resolveSizeColor(product, sizeEntry) : (product.colour || '');
+
     validated.push({
       productId: product.id,
       size:      product.sizeEnabled ? Number(item.size) : null,
@@ -81,7 +85,8 @@ export const validateCartService = async (items, isReseller = false) => {
       material:  product.material,
       price:     expectedPrice,
       quantity:  item.quantity || 1,
-      image:     product.imageUrl || '',
+      image:     resolvedImage,
+      color:     resolvedColor,
     });
   }
 

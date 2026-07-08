@@ -25,15 +25,39 @@ const normalizeSizeStock = (rawSizeStock) => {
     const price = Number(entry?.price);
     const resellerPrice = Number(entry?.resellerPrice);
 
+    // Per-size colour — optional, falls back to product's base `colour`
+    const color = typeof entry?.color === 'string' ? entry.color.trim() : '';
+
+    // Per-size image — admin uploads via the same /api/media/upload flow
+    // used for the main product image, then attaches { url, key } here.
+    // Falls back to the product's main imageUrl when left blank.
+    const image    = typeof entry?.image === 'string' ? entry.image : '';
+    const imageKey = typeof entry?.imageKey === 'string' ? entry.imageKey : '';
+
     bySize.set(size, {
       size,
       stock,
       price:         Number.isFinite(price) && price > 0 ? price : 0,
       resellerPrice: Number.isFinite(resellerPrice) && resellerPrice > 0 ? resellerPrice : 0,
+      color,
+      image,
+      imageKey,
     });
   }
 
   return Array.from(bySize.values()).sort((a, b) => a.size - b.size);
+};
+
+// ─── Resolve the effective image for one size entry ───────────────────────────
+export const resolveSizeImage = (product, sizeEntry) => {
+  if (sizeEntry?.image) return sizeEntry.image;
+  return product.imageUrl || '';
+};
+
+// ─── Resolve the effective colour for one size entry ───────────────────────────
+export const resolveSizeColor = (product, sizeEntry) => {
+  if (sizeEntry?.color) return sizeEntry.color;
+  return product.colour || '';
 };
 
 // ─── Resolve the effective price for one size entry ───────────────────────────
@@ -157,6 +181,8 @@ const applyDisplayPrice = (productJson, isReseller) => {
     productJson.sizeStock = productJson.sizeStock.map((entry) => ({
       ...entry,
       displayPrice: resolveSizePrice(productJson, entry, isReseller),
+      displayImage: resolveSizeImage(productJson, entry),
+      displayColor: resolveSizeColor(productJson, entry),
     }));
   }
 

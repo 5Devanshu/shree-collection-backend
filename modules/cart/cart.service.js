@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import Cart    from './cart.model.js';
 import Product from '../product/product.model.js';
-import { findSizeEntry, resolveSizePrice } from '../product/product.service.js';
+import { findSizeEntry, resolveSizePrice, resolveSizeImage, resolveSizeColor } from '../product/product.service.js';
 
 const getOrCreateCart = async (sessionId) => {
   const [cart] = await Cart.findOrCreate({
@@ -51,8 +51,10 @@ export const addToCartService = async (sessionId, { productId, size, quantity = 
     }
   }
 
-  // ── Resolve price — size-specific rate beats the base product price ─────
+  // ── Resolve price/image/color — size-specific values beat the base product ──
   const resolvedPrice = resolveSizePrice(product, sizeEntry, isReseller);
+  const resolvedImage = product.sizeEnabled ? resolveSizeImage(product, sizeEntry) : (product.imageUrl || '');
+  const resolvedColor = product.sizeEnabled ? resolveSizeColor(product, sizeEntry) : (product.colour || '');
 
   const cart  = await getOrCreateCart(sessionId);
   const items = [...(cart.items || [])];
@@ -62,6 +64,8 @@ export const addToCartService = async (sessionId, { productId, size, quantity = 
   if (existingIndex > -1) {
     items[existingIndex].quantity += quantity;
     items[existingIndex].price = resolvedPrice;   // update price if role/rate changed
+    items[existingIndex].image = resolvedImage;
+    items[existingIndex].color = resolvedColor;
   } else {
     items.push({
       productId,
@@ -69,7 +73,8 @@ export const addToCartService = async (sessionId, { productId, size, quantity = 
       title:    product.title,
       material: product.material || '',
       price:    resolvedPrice,                    // ← resolved price (size-aware)
-      image:    product.imageUrl || '',
+      image:    resolvedImage,                    // ← resolved image (size-aware)
+      color:    resolvedColor,                    // ← resolved colour (size-aware)
       quantity,
     });
   }
