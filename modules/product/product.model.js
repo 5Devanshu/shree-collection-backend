@@ -144,6 +144,24 @@ const Product = sequelize.define(
     stoneType: { type: DataTypes.STRING, defaultValue: '' },
     sku:       { type: DataTypes.STRING, defaultValue: '' },
 
+    // ── Product-level colour variants — INDEPENDENT of sizing ──────────────
+    // Single source of truth for whether a colour selector shows at all,
+    // same pattern as sizeEnabled/sizeStock but with no size dependency:
+    // a product can have colours with no sizes, sizes with no colours here
+    // (using per-size colours in sizeStock instead), or neither.
+    colorEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    // Admin adds one or more colours, each with its own stock and photo.
+    // Shape: [{ color, stock, image, imageKey }] — same shape as the colour
+    // variants nested inside sizeStock entries, reusing normalizeColorVariants.
+    // When colorEnabled is false this is always cleared to [].
+    colors: {
+      type: DataTypes.JSONB,
+      defaultValue: [],
+    },
+
     delivery: {
       type: DataTypes.STRING,
       defaultValue: 'Complimentary Express Shipping',

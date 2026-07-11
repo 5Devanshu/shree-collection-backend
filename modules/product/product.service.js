@@ -160,6 +160,32 @@ const normalizeProductData = (data) => {
     d.sizeStock = [];
   }
 
+  // ── Product-level colours — INDEPENDENT of sizing ─────────────────────────
+  // Reuses the same normalizeColorVariants() used for per-size colours, since
+  // the shape ({ color, stock, image, imageKey }) is identical. This block
+  // runs regardless of sizeEnabled — a product can have top-level colours
+  // with no sizes at all.
+  if (d.colorEnabled) {
+    const normalizedColors = normalizeColorVariants(d.colors);
+    d.colors = normalizedColors;
+
+    // NOTE: if BOTH sizeEnabled and colorEnabled are true on the same
+    // product, this runs after the sizeEnabled block above and will
+    // overwrite d.stock/d.stockStatus with the colour-level total instead.
+    // In practice a product should use one variant scheme or the other —
+    // per-size colours (sizeStock[].colors) OR top-level colours (colors) —
+    // not both. If you do need both simultaneously, decide precedence here.
+    const totalStock = normalizedColors.reduce((sum, c) => sum + (c.stock || 0), 0);
+    d.stock = totalStock;
+    d.stockStatus =
+      totalStock === 0 ? 'out_of_stock' :
+      totalStock <= 5  ? 'low_stock'    : 'in_stock';
+  }
+
+  if (d.colorEnabled === false) {
+    d.colors = [];
+  }
+
   return d;
 };
 
