@@ -79,14 +79,31 @@ export const addToCartService = async (sessionId, { productId, size, color, quan
       const label = colorVariant ? `${sizeKey}, ${colorVariant.color}` : `${sizeKey}`;
       throw new Error(`"${product.title}" (size ${label}) is out of stock`);
     }
+  } else if (product.colorEnabled && Array.isArray(product.colors) && product.colors.length > 0) {
+    // ── Top-level colours — INDEPENDENT of sizing ──────────────────────────
+    // Reuses findColorVariant/resolveVariantStock, which only ever look at
+    // a `.colors` array — same shape whether it's nested in a size or not.
+    if (!color) throw new Error(`Please select a colour for "${product.title}"`);
+    colorVariant = findColorVariant({ colors: product.colors }, color);
+    if (!colorVariant) {
+      throw new Error(`"${product.title}" is not available in the selected colour`);
+    }
+
+    const stockAvailable = resolveVariantStock(null, colorVariant);
+    if (stockAvailable <= 0) {
+      throw new Error(`"${product.title}" (${colorVariant.color}) is out of stock`);
+    }
   }
 
-  // ── Resolve price/image — price is size-level only; image is colour-aware ──
+  // ── Resolve price/image/colour ───────────────────────────────────────────
+  // Price is size-level only (never colour-level, per product design).
+  // Image and colour both key off whichever colorVariant was resolved above
+  // — sized-with-colours, top-level-colours, or neither (colorVariant stays
+  // null and both fall back to the product's own image/colour field).
   const resolvedPrice = resolveSizePrice(product, sizeEntry, isReseller);
-  const resolvedImage = product.sizeEnabled
-    ? resolveVariantImage(product, colorVariant)
-    : (product.imageUrl || '');
-  const resolvedColor = colorVariant?.color || (!product.sizeEnabled ? (product.colour || '') : '');
+  const resolvedImage = resolveVariantImage(product, colorVariant);
+  const resolvedColor = colorVariant?.color
+    || (!product.sizeEnabled && !product.colorEnabled ? (product.colour || '') : '');
   const colorKey       = resolvedColor || null;
 
   const cart  = await getOrCreateCart(sessionId);
