@@ -1,265 +1,266 @@
-import { Op } from 'sequelize';
-import { Parser } from 'json2csv';
-import Order   from './order.model.js';
-import Product from '../product/product.model.js';
-import { findColorVariant } from '../product/product.service.js';
-import { sendOrderConfirmationEmail, sendLowStockAlert } from '../../services/brevo.service.js';
+import * as orderService from './order.service.js';
+import { initializePhonePePayment, checkPhonePeTransactionStatus } from '../../config/phonepe.js';
+import Order from './order.model.js';
 
-// ── Helper: decrement stock for each ordered item + low-stock alerts ──────────
-// Size- and colour-aware. When the ordered size has colour variants, the
-// decrement happens on that specific colour's stock (and the size's aggregate
-// stock is recomputed as the sum of its colours) — otherwise it falls back to
-// the size's own stock exactly as before.
-export const decrementStockForItems = async (items) => {
-  for (const item of items) {
-    const product = await Product.findByPk(item.productId || item.product);
-    if (!product) continue;
+// POST /api/orders
+export const createOrder = async (req, res) => {
+  try {
+    const order = await orderService.createOrderService(req.body);
+    res.status(201).json({ success: true, order });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
 
-    const qty = item.quantity || 1;
-    const hasSize = product.sizeEnabled && item.size !== undefined && item.size !== null && item.size !== '';
+// GET /api/orders  [Admin]
+export const getAllOrders = async (req, res) => {
+  try {
+    const result = await orderService.getAllOrdersService(req.query);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-    if (hasSize) {
-      const sizeStock = [...(product.sizeStock || [])];
-      const idx = sizeStock.findIndex((s) => Number(s.size) === Number(item.size));
-      if (idx === -1) continue;
+// ── ADD this handler anywhere after getAllOrders() in order.controller.js ─────
 
-      const sizeEntry     = sizeStock[idx];
-      const hasColorOptions = Array.isArray(sizeEntry.colors) && sizeEntry.colors.length > 0;
+// GET /api/orders/my-orders  [Reseller — own orders only]
+export const getMyOrders = async (req, res) => {
+  try {
+    const result = await orderService.getResellerOrdersService(req.reseller.id, req.query);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-      if (hasColorOptions) {
-        const colorVariant = findColorVariant(sizeEntry, item.color);
-        if (!colorVariant) continue;
+export const getMyOrdersCustomer = async (req, res) => {
+  try {
+    const result = await orderService.getCustomerOrdersService(req.customer.id, req.query);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-        const colors = sizeEntry.colors.map((c) =>
-          c.color.toLowerCase() === colorVariant.color.toLowerCase()
-            ? { ...c, stock: Math.max(0, (c.stock || 0) - qty) }
-            : c
-        );
-        const previousColorStock = colorVariant.stock || 0;
-        const newColorStock      = Math.max(0, previousColorStock - qty);
-        const newSizeStock       = colors.reduce((sum, c) => sum + (c.stock || 0), 0);
+// GET /api/orders/recent  [Admin]
+export const getRecentOrders = async (req, res) => {
+  try {
+    const orders = await orderService.getRecentOrdersService(req.query.limit);
+    res.status(200).json({ success: true, orders });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-        sizeStock[idx] = { ...sizeEntry, colors, stock: newSizeStock };
+// GET /api/orders/stats  [Admin]
+export const getOrderStats = async (req, res) => {
+  try {
+    const stats = await orderService.getOrderStatsService();
+    res.status(200).json({ success: true, ...stats });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-        const totalStock = sizeStock.reduce((sum, s) => sum + (s.stock || 0), 0);
-        const stockStatus =
-          totalStock === 0 ? 'out_of_stock' :
-          totalStock <= 5  ? 'low_stock'    : 'in_stock';
+// GET /api/orders/export  [Admin]
+export const exportOrdersCSV = async (req, res) => {
+  try {
+    const csv = await orderService.exportOrdersCSVService();
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="shree-orders.csv"');
+    res.status(200).send(csv);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
-        await product.update({ sizeStock, stock: totalStock, stockStatus });
+// GET /api/orders/:id  [Admin]
+export const getOrderById = async (req, res) => {
+  try {
+    const order = await orderService.getOrderByIdService(req.params.id);
+    res.status(200).json({ success: true, order });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+};
 
-        if (newColorStock <= 5 && previousColorStock > 5) {
-          await sendLowStockAlert(product);
+// PATCH /api/orders/:id/status  [Admin]
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const order = await orderService.updateOrderStatusService(req.params.id, req.body);
+    res.status(200).json({ success: true, order });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// DELETE /api/orders/:id  [Admin]
+export const deleteOrder = async (req, res) => {
+  try {
+    const result = await orderService.deleteOrderService(req.params.id);
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/orders/demo  [Public - Guest Checkout Demo]
+export const createDemoOrder = async (req, res) => {
+  try {
+    const order = await orderService.createOrderService(req.body);
+    res.status(201).json({ 
+      success: true, 
+      data: {
+        orderId: order.orderNumber,
+        orderNumber: order.orderNumber,
+        email: order.email,
+        total: order.total,
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// POST /api/orders/:id/payment/initiate [Public - Payment Gateway Redirect]
+export const initiatePayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    // Fetch order from database
+    const order = await Order.findByPk(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check if already paid
+    if (order.paymentStatus === 'paid') {
+      return res.status(400).json({ success: false, message: 'Order already paid' });
+    }
+
+    // Prepare PhonePe payment data
+    const paymentData = {
+      amount: order.total,
+      orderId: order.orderNumber,
+      customerName: `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`,
+      customerEmail: order.email,
+      customerPhone: order.phone,
+      redirectUrl: `${process.env.FRONTEND_URL}/payment/success?orderId=${order.orderNumber}`,
+      callbackUrl: `${process.env.BACKEND_URL}/api/orders/payment/callback`,
+    };
+
+    // Initialize PhonePe payment
+    const phonePeResponse = await initializePhonePePayment(paymentData);
+
+    if (phonePeResponse.success) {
+      // Return redirect URL to frontend
+      res.status(200).json({
+        success: true,
+        data: {
+          orderId: order.orderNumber,
+          paymentUrl: phonePeResponse.data.instrumentResponse.redirectUrl,
+          transactionId: phonePeResponse.data.transactionId,
+        },
+      });
+    } else {
+      throw new Error(phonePeResponse.message || 'Failed to initiate payment');
+    }
+  } catch (error) {
+    console.error('Payment Initiation Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to initiate payment' 
+    });
+  }
+};
+
+// POST /api/orders/payment/callback [PhonePe Webhook]
+export const paymentCallback = async (req, res) => {
+  try {
+    const { merchantTransactionId, status } = req.body;
+
+    if (!merchantTransactionId) {
+      return res.status(400).json({ success: false, message: 'Missing transaction ID' });
+    }
+
+    // Find order by orderNumber
+    const order = await Order.findOne({ where: { orderNumber: merchantTransactionId } });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Update order status based on payment status
+    if (status === 'SUCCESS' || status === 'COMPLETED') {
+      order.paymentStatus = 'paid';
+      order.status = 'confirmed';
+      order.paidAt = new Date();
+    } else if (status === 'FAILED') {
+      order.paymentStatus = 'failed';
+      order.status = 'cancelled';
+    } else {
+      order.paymentStatus = 'pending';
+    }
+
+    await order.save();
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Payment callback processed',
+      data: { orderId: order.orderNumber, status: order.status }
+    });
+  } catch (error) {
+    console.error('Payment Callback Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Callback processing failed' 
+    });
+  }
+};
+
+// GET /api/orders/:id/payment/verify [Public - Verify Payment Status]
+export const verifyPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    // Find order by orderNumber
+    const order = await Order.findOne({ where: { orderNumber: orderId } });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check PhonePe transaction status
+    try {
+      const transactionStatus = await checkPhonePeTransactionStatus(orderId);
+
+      if (transactionStatus.success) {
+        // Update order if payment is confirmed
+        if (transactionStatus.data.state === 'COMPLETED') {
+          order.paymentStatus = 'paid';
+          order.status = 'confirmed';
+          order.paidAt = new Date();
+          await order.save();
         }
-        continue;
       }
-
-      // ── No colour variants for this size — same as before ──────────────
-      const previousSizeStock = sizeEntry.stock || 0;
-      const newSizeStock      = Math.max(0, previousSizeStock - qty);
-      sizeStock[idx] = { ...sizeEntry, stock: newSizeStock };
-
-      const totalStock = sizeStock.reduce((sum, s) => sum + (s.stock || 0), 0);
-      const stockStatus =
-        totalStock === 0 ? 'out_of_stock' :
-        totalStock <= 5  ? 'low_stock'    : 'in_stock';
-
-      await product.update({ sizeStock, stock: totalStock, stockStatus });
-
-      if (newSizeStock <= 5 && previousSizeStock > 5) {
-        await sendLowStockAlert(product);
-      }
-      continue;
+    } catch (phonePeError) {
+      console.warn('PhonePe verification fallback:', phonePeError.message);
     }
 
-    // ── Top-level colours (colorEnabled), independent of sizing ──────────────
-    // Mirrors the sized-with-colours branch above: decrement the specific
-    // colour's stock, then recompute the product's aggregate stock as the
-    // sum of all colours.
-    const hasTopLevelColors = product.colorEnabled && Array.isArray(product.colors) && product.colors.length > 0;
-
-    if (hasTopLevelColors) {
-      const colorVariant = findColorVariant({ colors: product.colors }, item.color);
-      if (!colorVariant) continue;
-
-      const colors = product.colors.map((c) =>
-        c.color.toLowerCase() === colorVariant.color.toLowerCase()
-          ? { ...c, stock: Math.max(0, (c.stock || 0) - qty) }
-          : c
-      );
-      const previousColorStock = colorVariant.stock || 0;
-      const newColorStock      = Math.max(0, previousColorStock - qty);
-      const totalStock         = colors.reduce((sum, c) => sum + (c.stock || 0), 0);
-
-      const stockStatus =
-        totalStock === 0 ? 'out_of_stock' :
-        totalStock <= 5  ? 'low_stock'    : 'in_stock';
-
-      await product.update({ colors, stock: totalStock, stockStatus });
-
-      if (newColorStock <= 5 && previousColorStock > 5) {
-        await sendLowStockAlert(product);
-      }
-      continue;
-    }
-
-    const previousStock = product.stock;
-    const newStock      = Math.max(0, previousStock - qty);
-
-    const stockStatus =
-      newStock === 0  ? 'out_of_stock' :
-      newStock <= 5   ? 'low_stock'    : 'in_stock';
-
-    await product.update({ stock: newStock, stockStatus });
-
-    if (newStock <= 5 && previousStock > 5) {
-      await sendLowStockAlert(product);
-    }
+    res.status(200).json({
+      success: true,
+      data: {
+        orderId: order.orderNumber,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        total: order.total,
+        email: order.email,
+      },
+    });
+  } catch (error) {
+    console.error('Payment Verification Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Verification failed' 
+    });
   }
-};
-
-// ── Create order ──────────────────────────────────────────────────────────────
-export const createOrderService = async (data) => {
-  const { items, shippingCost = 0 } = data;
-
-  const subtotal = items.reduce((sum, i) => sum + Number(i.price) * (i.quantity || 1), 0);
-  const total    = subtotal + Number(shippingCost);
-
-  const order = await Order.create({ ...data, subtotal, total });
-
-  await decrementStockForItems(items);
-
-  const name = data.shippingAddress
-    ? `${data.shippingAddress.firstName || ''} ${data.shippingAddress.lastName || ''}`.trim() || 'Customer'
-    : 'Customer';
-  await sendOrderConfirmationEmail(order.email, {
-    orderNumber: order.orderNumber,
-    name,
-    items: order.items,
-    total: order.total,
-  });
-
-  return order;
-};
-
-// ── Get all orders (AdminOrders table) ────────────────────────────────────────
-export const getAllOrdersService = async ({ page = 1, limit = 20, status, buyerType } = {}) => {
-  const where = {};
-  if (status) where.status = status;
-
-  if (buyerType === 'reseller') {
-    where.resellerId = { [Op.ne]: null };
-  } else if (buyerType === 'customer') {
-    where.resellerId = { [Op.is]: null };
-  }
-
-  const offset = (Number(page) - 1) * Number(limit);
-
-  const { rows: orders, count: total } = await Order.findAndCountAll({
-    where,
-    order:  [['createdAt', 'DESC']],
-    offset,
-    limit:  Number(limit),
-  });
-
-  return { orders, total, page: Number(page), limit: Number(limit) };
-};
-
-// ── My Orders (reseller's own order history) ──────────────────────────────────
-export const getResellerOrdersService = async (resellerId, { page = 1, limit = 20, status } = {}) => {
-  const where = { resellerId };
-  if (status) where.status = status;
-
-  const offset = (Number(page) - 1) * Number(limit);
-
-  const { rows: orders, count: total } = await Order.findAndCountAll({
-    where,
-    order:  [['createdAt', 'DESC']],
-    offset,
-    limit:  Number(limit),
-  });
-
-  return { orders, total, page: Number(page), limit: Number(limit) };
-};
-
-export const getCustomerOrdersService = async (customerId, { page = 1, limit = 20, status } = {}) => {
-  const where = { customerId };
-  if (status) where.status = status;
-
-  const offset = (Number(page) - 1) * Number(limit);
-
-  const { rows: orders, count: total } = await Order.findAndCountAll({
-    where,
-    order:  [['createdAt', 'DESC']],
-    offset,
-    limit:  Number(limit),
-  });
-
-  return { orders, total, page: Number(page), limit: Number(limit) };
-};
-
-// ── Recent orders (AdminDashboard) ────────────────────────────────────────────
-export const getRecentOrdersService = async (limit = 5) => {
-  return Order.findAll({ order: [['createdAt', 'DESC']], limit: Number(limit) });
-};
-
-// ── Single order ──────────────────────────────────────────────────────────────
-export const getOrderByIdService = async (id) => {
-  const order = await Order.findByPk(id);
-  if (!order) throw new Error('Order not found');
-  return order;
-};
-
-// ── Update status / payment status ────────────────────────────────────────────
-export const updateOrderStatusService = async (id, { status, paymentStatus, trackingNumber }) => {
-  const order = await Order.findByPk(id);
-  if (!order) throw new Error('Order not found');
-
-  const updates = {};
-  if (status)         updates.status         = status;
-  if (paymentStatus)  updates.paymentStatus  = paymentStatus;
-  if (trackingNumber !== undefined) updates.trackingNumber = trackingNumber;
-
-  await order.update(updates);
-  return order;
-};
-
-// ── Delete order ──────────────────────────────────────────────────────────────
-export const deleteOrderService = async (id) => {
-  const order = await Order.findByPk(id);
-  if (!order) throw new Error('Order not found');
-  await order.destroy();
-  return { message: 'Order deleted successfully' };
-};
-
-// ── Export CSV (AdminOrders) ──────────────────────────────────────────────────
-export const exportOrdersCSVService = async () => {
-  const orders = await Order.findAll({ order: [['createdAt', 'DESC']] });
-
-  const rows = orders.map((o) => ({
-    orderNumber:   o.orderNumber,
-    email:         o.email,
-    customerName:  `${o.shippingAddress?.firstName || ''} ${o.shippingAddress?.lastName || ''}`.trim(),
-    buyerType:     o.resellerId ? 'reseller' : 'customer',
-    city:          o.shippingAddress?.city || '',
-    status:        o.status,
-    paymentStatus: o.paymentStatus,
-    subtotal:      o.subtotal,
-    shippingCost:  o.shippingCost,
-    total:         o.total,
-    date:          o.createdAt.toISOString().split('T')[0],
-  }));
-
-  const parser = new Parser();
-  return parser.parse(rows);
-};
-
-// ── Stats (AdminDashboard stat cards) ─────────────────────────────────────────
-export const getOrderStatsService = async () => {
-  const [totalRevenue, totalOrders] = await Promise.all([
-    Order.sum('total', { where: { paymentStatus: 'paid' } }),
-    Order.count(),
-  ]);
-
-  return { totalRevenue: Number(totalRevenue) || 0, totalOrders };
 };
