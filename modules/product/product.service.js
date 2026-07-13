@@ -49,11 +49,22 @@ const normalizeSizeStock = (rawSizeStock) => {
       ? colors.reduce((sum, c) => sum + c.stock, 0)
       : Number(entry?.stock) || 0;
 
+    // ── Per-size discount override ──────────────────────────────────────
+    // discountEnabled: true/false explicitly overrides the product's own
+    // discountEnabled for this size; null/undefined means "inherit the
+    // product's setting". discountPercent: >0 overrides the product's
+    // discountPercent for this size; 0 means "inherit the product's %".
+    // Never applies to resellers regardless — see resolveSizePrice.
+    const discountEnabled = typeof entry?.discountEnabled === 'boolean' ? entry.discountEnabled : null;
+    const discountPercent = Number(entry?.discountPercent);
+
     bySize.set(size, {
       size,
       stock,
-      price:         Number.isFinite(price) && price > 0 ? price : 0,
-      resellerPrice: Number.isFinite(resellerPrice) && resellerPrice > 0 ? resellerPrice : 0,
+      price:           Number.isFinite(price) && price > 0 ? price : 0,
+      resellerPrice:   Number.isFinite(resellerPrice) && resellerPrice > 0 ? resellerPrice : 0,
+      discountEnabled,
+      discountPercent: Number.isFinite(discountPercent) && discountPercent > 0 ? discountPercent : 0,
       colors,
     });
   }
@@ -62,8 +73,11 @@ const normalizeSizeStock = (rawSizeStock) => {
 };
 
 // ─── Resolve the effective price for one size entry ───────────────────────────
-// Unchanged — price/resellerPrice still live at the SIZE level, not per
-// colour. You didn't ask for per-colour pricing, only per-colour look/stock.
+// price/resellerPrice still live at the SIZE level. discount now also has an
+// optional per-size override (discountEnabled/discountPercent on the size
+// entry) — falls back to the product's own discount settings when not set.
+// Resellers NEVER receive a discount, full stop — they either get an
+// explicit resellerPrice (size-level, then product-level) or plain retail.
 export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
   const basePrice = Number(product.price) || 0;
   const hasSizePrice = sizeEntry && Number(sizeEntry.price) > 0;
@@ -73,11 +87,26 @@ export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
     const hasSizeResellerPrice = sizeEntry && Number(sizeEntry.resellerPrice) > 0;
     if (hasSizeResellerPrice) return Number(sizeEntry.resellerPrice);
     if (Number(product.resellerPrice) > 0) return Number(product.resellerPrice);
+    // No resellerPrice configured — reseller pays plain retail, no discount.
+    return retailForSize;
   }
 
-  const percent = Number(product.discountPercent) || 0;
-  if (product.discountEnabled && percent > 0) {
-    return parseFloat((retailForSize - (retailForSize * percent) / 100).toFixed(2));
+  // ── Discount resolution (customers only) ────────────────────────────────
+  // Size-level discountEnabled, when explicitly set (true/false), overrides
+  // the product's discountEnabled for this size. null/undefined inherits it.
+  const sizeDiscountEnabled = sizeEntry?.discountEnabled;
+  const effectiveDiscountEnabled =
+    sizeDiscountEnabled === null || sizeDiscountEnabled === undefined
+      ? Boolean(product.discountEnabled)
+      : sizeDiscountEnabled;
+
+  const sizeDiscountPercent = Number(sizeEntry?.discountPercent) || 0;
+  const effectiveDiscountPercent = sizeDiscountPercent > 0
+    ? sizeDiscountPercent
+    : Number(product.discountPercent) || 0;
+
+  if (effectiveDiscountEnabled && effectiveDiscountPercent > 0) {
+    return parseFloat((retailForSize - (retailForSize * effectiveDiscountPercent) / 100).toFixed(2));
   }
 
   return retailForSize;
@@ -191,9 +220,13 @@ const normalizeProductData = (data) => {
 
 // ─── Helper: apply reseller or retail display price ───────────────────────────
 const applyDisplayPrice = (productJson, isReseller) => {
-  if (isReseller && productJson.resellerPrice > 0) {
-    productJson.displayPrice    = parseFloat(productJson.resellerPrice);
-    productJson.isResellerPrice = true;
+  if (isReseller) {
+    // Resellers never receive a discount — either their explicit
+    // resellerPrice, or plain retail if none is configured.
+    productJson.displayPrice    = productJson.resellerPrice > 0
+      ? parseFloat(productJson.resellerPrice)
+      : parseFloat(productJson.price);
+    productJson.isResellerPrice = productJson.resellerPrice > 0;
   } else {
     productJson.displayPrice    = productJson.discountEnabled
       ? parseFloat(productJson.discountedPrice)
