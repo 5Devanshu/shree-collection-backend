@@ -93,7 +93,8 @@ const updateCategoryService = async (id, { name, description, isActive, image, i
   }
 
   await category.update(updates);
-  return category;
+  const productCount = await Product.count({ where: { categoryId: category.id } });
+  return { ...category.toJSON(), productCount };
 };
 
 // Delete a category — AdminCategory delete action
