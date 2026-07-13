@@ -93,6 +93,20 @@ const updateCategoryService = async (id, { name, description, isActive, image, i
   }
 
   await category.update(updates);
+
+  // ── Cascade the new slug onto every product under this category ─────────
+  // Product.categorySlug is a denormalized copy (used by the storefront's
+  // client-side category filtering). If the category's slug changes here
+  // without updating it, products silently "disappear" from their category
+  // page — the categoryId link is still correct, but categorySlug goes
+  // stale and no longer matches the renamed category.
+  if (updates.slug) {
+    await Product.update(
+      { categorySlug: updates.slug },
+      { where: { categoryId: category.id } }
+    );
+  }
+
   const productCount = await Product.count({ where: { categoryId: category.id } });
   return { ...category.toJSON(), productCount };
 };
