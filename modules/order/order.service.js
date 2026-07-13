@@ -72,6 +72,37 @@ export const decrementStockForItems = async (items) => {
       continue;
     }
 
+    // ── Top-level colours (colorEnabled), independent of sizing ──────────────
+    // Mirrors the sized-with-colours branch above: decrement the specific
+    // colour's stock, then recompute the product's aggregate stock as the
+    // sum of all colours.
+    const hasTopLevelColors = product.colorEnabled && Array.isArray(product.colors) && product.colors.length > 0;
+
+    if (hasTopLevelColors) {
+      const colorVariant = findColorVariant({ colors: product.colors }, item.color);
+      if (!colorVariant) continue;
+
+      const colors = product.colors.map((c) =>
+        c.color.toLowerCase() === colorVariant.color.toLowerCase()
+          ? { ...c, stock: Math.max(0, (c.stock || 0) - qty) }
+          : c
+      );
+      const previousColorStock = colorVariant.stock || 0;
+      const newColorStock      = Math.max(0, previousColorStock - qty);
+      const totalStock         = colors.reduce((sum, c) => sum + (c.stock || 0), 0);
+
+      const stockStatus =
+        totalStock === 0 ? 'out_of_stock' :
+        totalStock <= 5  ? 'low_stock'    : 'in_stock';
+
+      await product.update({ colors, stock: totalStock, stockStatus });
+
+      if (newColorStock <= 5 && previousColorStock > 5) {
+        await sendLowStockAlert(product);
+      }
+      continue;
+    }
+
     const previousStock = product.stock;
     const newStock      = Math.max(0, previousStock - qty);
 
