@@ -166,28 +166,53 @@ export const confirmOrderService = async ({
   phonePeTransactionId,
   resellerId = null,
   customerId = null,
+  sessionId = null,
 }) => {
-  const order = await Order.create({
-    email,
-    shippingAddress,
-    items:            validatedItems,
-    subtotal,
-    shippingCost,
-    total,
-    paymentStatus:    'paid',
-    paymentMethod:    'phonepe',
-    paymentReference: phonePeTransactionId || merchantOrderId,
-    status:           'pending',
-    resellerId,
-    customerId,
-  });
+  // ── Idempotency guard ──────────────────────────────────────────────────
+  // confirmCheckout can legitimately be called more than once for the same
+  // PhonePe payment (frontend retry, callback page refresh/back-button,
+  // double-invoke in React StrictMode, etc). Without this check, every
+  // retry created a brand-new duplicate order for a single payment.
+  // paymentReference is set to the PhonePe transaction id (or, as a
+  // fallback, the merchantOrderId), so it uniquely identifies the payment.
+  const paymentReference = phonePeTransactionId || merchantOrderId;
+  const existingOrder = await Order.findOne({ where: { paymentReference } });
+  if (existingOrder) {
+    return existingOrder;
+  }
+
+  let order;
+  try {
+    order = await Order.create({
+      email,
+      shippingAddress,
+      items:            validatedItems,
+      subtotal,
+      shippingCost,
+      total,
+      paymentStatus:    'paid',
+      paymentMethod:    'phonepe',
+      paymentReference,
+      status:           'pending',
+      resellerId,
+      customerId,
+    });
+  } catch (err) {
+    // Unique constraint on paymentReference — a concurrent request beat us
+    // to it. Return the order that request created instead of erroring out.
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      const winner = await Order.findOne({ where: { paymentReference } });
+      if (winner) return winner;
+    }
+    throw err;
+  }
 
   await decrementStockForItems(validatedItems);
 
-  if (customerId) {
-    await Cart.destroy({ where: { customerId } });
-  } else if (resellerId) {
-    await Cart.destroy({ where: { resellerId } });
+  // Cart is keyed by sessionId only — there is no customerId/resellerId
+  // column on the carts table, so clearing must go through sessionId.
+  if (sessionId) {
+    await Cart.destroy({ where: { sessionId } });
   }
 
   const name = shippingAddress?.name || 'Customer';

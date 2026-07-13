@@ -81,6 +81,11 @@ export const confirmCheckout = async (req, res) => {
       validatedItems,
     } = req.body;
 
+    // Cart is keyed by sessionId only (cookie or x-session-id header) —
+    // same convention as cart.controller.js. Needed so confirmOrderService
+    // can clear the correct cart after the order is placed.
+    const sessionId = req.cookies?.cartSessionId || req.headers['x-session-id'] || null;
+
     // Guard — reject malformed confirms so blank/null-email orders can't be created
     if (!email || !merchantOrderId || !Array.isArray(validatedItems) || validatedItems.length === 0) {
       return res.status(400).json({ success: false, message: 'Missing order details.' });
@@ -124,6 +129,7 @@ export const confirmCheckout = async (req, res) => {
       phonePeTransactionId,
       resellerId: req.reseller?.id ?? null,
       customerId: req.customer?.id ?? null,
+      sessionId,
     });
 
     res.status(201).json({ success: true, order });
