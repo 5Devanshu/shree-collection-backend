@@ -5,6 +5,8 @@ import {
   checkOrderStatusService,
   confirmOrderService,
   validateWebhookService,
+  savePendingCheckoutService,
+  getPendingCheckoutService,
 } from './checkout.service.js';
 import {
   StandardCheckoutClient,
@@ -35,6 +37,12 @@ export const initiateCheckout = async (req, res) => {
       req.body.address?.state         ||
       req.body.state                  || '';
 
+    // Full shipping address, if the frontend already has it at this point —
+    // used only for the pending-checkout safety-net snapshot below.
+    // Not required for initiate to succeed.
+    const shippingAddress =
+      req.body.shippingAddress || req.body.guestAddress || req.body.address || null;
+
     console.log('CHECKOUT INITIATE DEBUG:', {
       isReseller,
       state,
@@ -53,6 +61,26 @@ export const initiateCheckout = async (req, res) => {
     // Step 3 — Create PhonePe payment order
     const { checkoutUrl, merchantOrderId, phonePeOrderId } =
       await createPaymentOrderService(total, email);
+
+    // Step 3b — Snapshot everything needed to build the order, BEFORE the
+    // customer is redirected to PhonePe. This is the safety net for the
+    // "money cut, no order" bug: if the browser loses its cart/email state
+    // during the redirect (Android UPI app switch, tab reload, etc.), the
+    // webhook can still build the order from this snapshot even if
+    // /checkout/confirm never arrives with a complete payload.
+    const sessionId = req.cookies?.cartSessionId || req.headers['x-session-id'] || null;
+    await savePendingCheckoutService({
+      merchantOrderId,
+      email,
+      shippingAddress,
+      items: validatedItems,
+      subtotal,
+      shippingCost,
+      total,
+      resellerId: req.reseller?.id ?? null,
+      customerId: req.customer?.id ?? null,
+      sessionId,
+    });
 
     res.status(200).json({
       success: true,
@@ -74,7 +102,7 @@ export const initiateCheckout = async (req, res) => {
 // ─── POST /api/checkout/confirm ───────────────────────────────────────────────
 export const confirmCheckout = async (req, res) => {
   try {
-    const {
+    let {
       merchantOrderId,
       email,
       shippingAddress,
@@ -86,8 +114,29 @@ export const confirmCheckout = async (req, res) => {
     // can clear the correct cart after the order is placed.
     const sessionId = req.cookies?.cartSessionId || req.headers['x-session-id'] || null;
 
+    if (!merchantOrderId) {
+      return res.status(400).json({ success: false, message: 'Missing order details.' });
+    }
+
+    // ── Recovery fallback ──────────────────────────────────────────────────
+    // If the frontend lost its cart/email/address state during the redirect
+    // to/from PhonePe (this is the root cause of payments being captured
+    // with no order ever appearing), recover everything from the snapshot
+    // taken at /checkout/initiate instead of failing outright.
+    let pending = null;
+    if (!email || !Array.isArray(validatedItems) || validatedItems.length === 0) {
+      pending = await getPendingCheckoutService(merchantOrderId);
+      if (pending) {
+        email           = email || pending.email;
+        shippingAddress = shippingAddress || pending.shippingAddress;
+        validatedItems  = (Array.isArray(validatedItems) && validatedItems.length)
+          ? validatedItems
+          : pending.items;
+      }
+    }
+
     // Guard — reject malformed confirms so blank/null-email orders can't be created
-    if (!email || !merchantOrderId || !Array.isArray(validatedItems) || validatedItems.length === 0) {
+    if (!email || !Array.isArray(validatedItems) || validatedItems.length === 0) {
       return res.status(400).json({ success: false, message: 'Missing order details.' });
     }
 
@@ -127,9 +176,9 @@ export const confirmCheckout = async (req, res) => {
       total,
       merchantOrderId,
       phonePeTransactionId,
-      resellerId: req.reseller?.id ?? null,
-      customerId: req.customer?.id ?? null,
-      sessionId,
+      resellerId: req.reseller?.id ?? pending?.resellerId ?? null,
+      customerId: req.customer?.id ?? pending?.customerId ?? null,
+      sessionId: sessionId || pending?.sessionId || null,
     });
 
     res.status(201).json({ success: true, order });
@@ -178,6 +227,39 @@ export const handleWebhook = async (req, res) => {
 
     if (event === 'checkout.order.completed' && state === 'COMPLETED') {
       console.log(`✅ PhonePe payment completed for order: ${merchantOrderId}`);
+
+      // ── Safety net ─────────────────────────────────────────────────────
+      // This is the fix for payments being captured with no order created:
+      // don't rely on the frontend's /checkout/confirm call ever arriving.
+      // Build the order here from the snapshot taken at /checkout/initiate.
+      // confirmOrderService is idempotent on paymentReference, so this is
+      // safe to run even if /confirm already created the order (whichever
+      // of the two runs second just returns the existing order).
+      try {
+        const pending = await getPendingCheckoutService(merchantOrderId);
+        if (pending) {
+          const phonePeTransactionId =
+            callbackResponse.payload?.paymentDetails?.[0]?.transactionId || merchantOrderId;
+
+          await confirmOrderService({
+            email:           pending.email,
+            shippingAddress: pending.shippingAddress,
+            validatedItems:  pending.items,
+            subtotal:        Number(pending.subtotal),
+            shippingCost:    Number(pending.shippingCost),
+            total:           Number(pending.total),
+            merchantOrderId,
+            phonePeTransactionId,
+            resellerId: pending.resellerId,
+            customerId: pending.customerId,
+            sessionId:  pending.sessionId,
+          });
+        } else {
+          console.warn(`No pending-checkout snapshot found for ${merchantOrderId} — cannot auto-create order from webhook.`);
+        }
+      } catch (webhookOrderErr) {
+        console.error('Webhook order-creation fallback failed:', webhookOrderErr.message);
+      }
     }
 
     if (event === 'checkout.order.failed') {

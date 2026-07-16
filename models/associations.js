@@ -6,6 +6,7 @@ import Media    from '../modules/media/media.model.js';
 import Cart     from '../modules/cart/cart.model.js';
 import Reseller from '../modules/reseller/reseller.model.js';
 import Customer from '../modules/customer/customer.model.js';
+import PendingCheckout from '../modules/checkout/pendingCheckout.model.js';
 
 // ── Product ↔ Category ────────────────────────────────────────────────────────
 Product.belongsTo(Category, { foreignKey: 'categoryId', as: 'category' });
@@ -22,4 +23,4 @@ Customer.hasMany(Order,   { foreignKey: 'customerId', as: 'orders' });
 // ── Media ↔ Product ───────────────────────────────────────────────────────────
 Media.belongsTo(Product, { foreignKey: 'attachedProductId', as: 'product' });
 
-export { Product, Category, Order, Admin, Media, Cart, Reseller, Customer };
+export { Product, Category, Order, Admin, Media, Cart, Reseller, Customer, PendingCheckout };

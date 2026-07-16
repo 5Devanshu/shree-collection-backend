@@ -3,8 +3,9 @@ import {
   Env,
   StandardCheckoutPayRequest,
 } from '@phonepe-pg/pg-sdk-node';
-import Order   from '../order/order.model.js';
-import Product from '../product/product.model.js';
+import Order           from '../order/order.model.js';
+import Product         from '../product/product.model.js';
+import PendingCheckout  from './pendingCheckout.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 import Cart from '../cart/cart.model.js';
@@ -142,6 +143,45 @@ export const createPaymentOrderService = async (total, email) => {
   };
 };
 
+// ─── Step 3b: Snapshot the checkout attempt (safety net) ─────────────────────
+// Called right after createPaymentOrderService, before redirecting the
+// customer to PhonePe. Never lets a snapshot failure block checkout — the
+// primary /confirm path still works without it, this is only the fallback.
+export const savePendingCheckoutService = async ({
+  merchantOrderId,
+  email,
+  shippingAddress,
+  items,
+  subtotal,
+  shippingCost,
+  total,
+  resellerId = null,
+  customerId = null,
+  sessionId  = null,
+}) => {
+  try {
+    await PendingCheckout.upsert({
+      merchantOrderId,
+      email,
+      shippingAddress: shippingAddress || null,
+      items,
+      subtotal,
+      shippingCost,
+      total,
+      resellerId,
+      customerId,
+      sessionId,
+    });
+  } catch (err) {
+    console.error('savePendingCheckoutService error (non-blocking):', err.message);
+  }
+};
+
+export const getPendingCheckoutService = async (merchantOrderId) => {
+  if (!merchantOrderId) return null;
+  return PendingCheckout.findOne({ where: { merchantOrderId } });
+};
+
 // ─── Step 4: Check Order Payment Status ──────────────────────────────────────
 export const checkOrderStatusService = async (merchantOrderId) => {
   const client   = getPhonePeClient();
@@ -155,6 +195,10 @@ export const checkOrderStatusService = async (merchantOrderId) => {
 };
 
 // ─── Step 5: Confirm & Place Order in DB ─────────────────────────────────────
+// Called from BOTH POST /checkout/confirm (fast path, frontend-driven) AND
+// the /checkout/webhook handler (safety-net path, PhonePe-driven). Must stay
+// idempotent on paymentReference since both paths can legitimately fire for
+// the same payment.
 export const confirmOrderService = async ({
   email,
   shippingAddress,
@@ -169,15 +213,22 @@ export const confirmOrderService = async ({
   sessionId = null,
 }) => {
   // ── Idempotency guard ──────────────────────────────────────────────────
-  // confirmCheckout can legitimately be called more than once for the same
+  // confirmOrderService can legitimately run more than once for the same
   // PhonePe payment (frontend retry, callback page refresh/back-button,
-  // double-invoke in React StrictMode, etc). Without this check, every
-  // retry created a brand-new duplicate order for a single payment.
+  // double-invoke in React StrictMode, AND now also the webhook safety net
+  // racing with /confirm). Without this check, every extra call created a
+  // brand-new duplicate order for a single payment.
   // paymentReference is set to the PhonePe transaction id (or, as a
   // fallback, the merchantOrderId), so it uniquely identifies the payment.
   const paymentReference = phonePeTransactionId || merchantOrderId;
   const existingOrder = await Order.findOne({ where: { paymentReference } });
   if (existingOrder) {
+    if (merchantOrderId) {
+      await PendingCheckout.update(
+        { consumedAt: new Date() },
+        { where: { merchantOrderId, consumedAt: null } }
+      );
+    }
     return existingOrder;
   }
 
@@ -198,8 +249,9 @@ export const confirmOrderService = async ({
       customerId,
     });
   } catch (err) {
-    // Unique constraint on paymentReference — a concurrent request beat us
-    // to it. Return the order that request created instead of erroring out.
+    // Unique constraint on paymentReference — a concurrent request (the
+    // other of /confirm vs webhook) beat us to it. Return that order
+    // instead of erroring out.
     if (err.name === 'SequelizeUniqueConstraintError') {
       const winner = await Order.findOne({ where: { paymentReference } });
       if (winner) return winner;
@@ -213,6 +265,13 @@ export const confirmOrderService = async ({
   // column on the carts table, so clearing must go through sessionId.
   if (sessionId) {
     await Cart.destroy({ where: { sessionId } });
+  }
+
+  if (merchantOrderId) {
+    await PendingCheckout.update(
+      { consumedAt: new Date() },
+      { where: { merchantOrderId, consumedAt: null } }
+    );
   }
 
   const name = shippingAddress?.name || 'Customer';
