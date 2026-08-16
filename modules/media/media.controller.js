@@ -86,22 +86,40 @@ export const deleteMedia = async (req, res) => {
 // browser when the referrer is a different origin (CORS + presigned URL
 // restrictions). Streaming through the backend avoids this entirely and works
 // regardless of bucket CORS policy.
+// ─── GET /api/media/file/:key — public, no auth ───────────────────────────────
 export const serveFile = async (req, res) => {
+  const key = decodeURIComponent(req.params.key);
   try {
-    const key = decodeURIComponent(req.params.key);
     const command  = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
     const response = await s3.send(command);
 
-    // Forward content headers so the browser renders images correctly
     if (response.ContentType)   res.setHeader('Content-Type',   response.ContentType);
     if (response.ContentLength) res.setHeader('Content-Length', response.ContentLength);
-
-    // Cache for 1 hour — same lifetime as old presigned URLs
     res.setHeader('Cache-Control', 'public, max-age=3600');
 
-    // Pipe the R2 readable stream straight to the HTTP response
-    response.Body.pipe(res);
+    const stream = response.Body;
+
+    // CRITICAL: response.Body is a Node Readable stream. If it emits 'error'
+    // with no listener attached, Node throws it as an UNCAUGHT EXCEPTION and
+    // kills the whole process — taking every other in-flight request with it.
+    stream.on('error', (err) => {
+      console.error(`[media] R2 stream error for key "${key}":`, err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, message: 'Failed to stream file' });
+      } else {
+        res.destroy();
+      }
+    });
+
+    res.on('close', () => {
+      if (!stream.destroyed) stream.destroy();
+    });
+
+    stream.pipe(res);
   } catch (error) {
-    res.status(404).json({ success: false, message: 'File not found' });
+    console.error(`[media] R2 getObject failed for key "${key}":`, error.message);
+    if (!res.headersSent) {
+      res.status(404).json({ success: false, message: 'File not found' });
+    }
   }
 };
