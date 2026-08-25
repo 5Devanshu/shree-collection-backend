@@ -259,13 +259,23 @@ const CATEGORY_INCLUDE = [{
 
 // ─── Get All Products ─────────────────────────────────────────────────────────
 export const getAllProductsService = async (
-  { page = 1, limit = 20, category, stockStatus, search } = {},
+  { page = 1, limit = 20, category, stockStatus, search, minPrice, maxPrice } = {},
   isReseller = false
 ) => {
   const where = {};
   if (category)    where.categoryId  = category;
   if (stockStatus) where.stockStatus = stockStatus;
   if (search)      where.title       = { [Op.iLike]: `%${search}%` };
+
+  // ── Price range filter (AdminProducts filters) ──────────────────────────
+  // Filters on the base `price` field (not per-size prices) — good enough
+  // for admin catalog browsing. minPrice/maxPrice are optional and can be
+  // used independently (e.g. only maxPrice for "under ₹2000").
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    where.price = {};
+    if (minPrice !== undefined && minPrice !== '') where.price[Op.gte] = Number(minPrice);
+    if (maxPrice !== undefined && maxPrice !== '') where.price[Op.lte] = Number(maxPrice);
+  }
 
   const skip = (Number(page) - 1) * Number(limit);
 
