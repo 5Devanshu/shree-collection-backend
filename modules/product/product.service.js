@@ -265,7 +265,15 @@ export const getAllProductsService = async (
   const where = {};
   if (category)    where.categoryId  = category;
   if (stockStatus) where.stockStatus = stockStatus;
-  if (search)      where.title       = { [Op.iLike]: `%${search}%` };
+
+  // Search matches title OR SKU — one box, either lookup. Admin can paste
+  // a SKU straight in without needing a separate field.
+  if (search) {
+    where[Op.or] = [
+      { title: { [Op.iLike]: `%${search}%` } },
+      { sku:   { [Op.iLike]: `%${search}%` } },
+    ];
+  }
 
   // ── Price range filter (AdminProducts filters) ──────────────────────────
   // Filters on the base `price` field (not per-size prices) — good enough
