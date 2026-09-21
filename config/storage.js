@@ -11,7 +11,15 @@ import { NodeHttpHandler } from '@smithy/node-http-handler';
 // R2. A product grid loading 100-200 images at once (e.g. products?limit=200)
 // blows past that instantly — everything past the first 50 queues behind
 // "socket usage at capacity=50" and the browser sees those image requests
-// hang as (pending) indefinitely. Raised to 200 to match realistic page loads.
+// hang as (pending) indefinitely.
+//
+// IMPORTANT: @smithy/node-http-handler (as used by @aws-sdk/client-s3 v3.1063)
+// silently IGNORES a top-level `maxSockets` option — its resolveDefaultConfig
+// never destructures it and always builds the http/https Agent with a
+// hardcoded maxSockets: 50, no matter what you pass at the top level. The
+// only way to actually raise the cap is to nest it inside httpAgent/httpsAgent,
+// since those objects get spread onto the Agent constructor after the
+// hardcoded default. Verified against the installed package source directly.
 const s3 = new S3Client({
   endpoint: process.env.RAILWAY_BUCKET_ENDPOINT_URL,
   region:   process.env.RAILWAY_BUCKET_REGION || 'auto',
@@ -19,7 +27,10 @@ const s3 = new S3Client({
     accessKeyId:     process.env.RAILWAY_BUCKET_ACCESS_KEY_ID,
     secretAccessKey: process.env.RAILWAY_BUCKET_SECRET_ACCESS_KEY,
   },
-  requestHandler: new NodeHttpHandler({ maxSockets: 200 }),
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: { maxSockets: 200 },
+    httpAgent:  { maxSockets: 200 },
+  }),
 });
 
 export const BUCKET_NAME = process.env.RAILWAY_BUCKET_NAME;
