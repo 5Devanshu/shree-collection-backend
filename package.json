@@ -20,6 +20,7 @@
     "@aws-sdk/lib-storage": "^3.1063.0",
     "@aws-sdk/s3-request-presigner": "^3.1068.0",
     "@phonepe-pg/pg-sdk-node": "^2.0.6",
+    "@smithy/node-http-handler": "^4.12.1",
     "axios": "^1.14.0",
     "bcryptjs": "^2.4.3",
     "cashfree-pg": "^5.1.0",
