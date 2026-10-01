@@ -3,6 +3,7 @@ import { Parser } from 'json2csv';
 import Order   from './order.model.js';
 import Product from '../product/product.model.js';
 import { findColorVariant } from '../product/product.service.js';
+import { sizesEqual } from '../../utils/size.js';
 import { sendOrderConfirmationEmail, sendLowStockAlert } from '../../services/brevo.service.js';
 
 // ── Helper: decrement stock for each ordered item + low-stock alerts ──────────
@@ -20,7 +21,7 @@ export const decrementStockForItems = async (items) => {
 
     if (hasSize) {
       const sizeStock = [...(product.sizeStock || [])];
-      const idx = sizeStock.findIndex((s) => Number(s.size) === Number(item.size));
+      const idx = sizeStock.findIndex((s) => sizesEqual(s.size, item.size));
       if (idx === -1) continue;
 
       const sizeEntry     = sizeStock[idx];

@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import Product  from './product.model.js';
 import Category from '../category/category.model.js';
+import { normalizeSize, sizesEqual, compareSizes } from '../../utils/size.js';
 
 // ─── Normalize a size's colour variants ────────────────────────────────────────
 // Each size can now have MULTIPLE colours, each with its own stock and photo —
@@ -38,8 +39,8 @@ const normalizeSizeStock = (rawSizeStock) => {
 
   const bySize = new Map();
   for (const entry of rawSizeStock) {
-    const size = Number(entry?.size);
-    if (!Number.isFinite(size)) continue;
+    const size = normalizeSize(entry?.size);
+    if (size === null) continue;
 
     const price         = Number(entry?.price);
     const resellerPrice = Number(entry?.resellerPrice);
@@ -69,7 +70,7 @@ const normalizeSizeStock = (rawSizeStock) => {
     });
   }
 
-  return Array.from(bySize.values()).sort((a, b) => a.size - b.size);
+  return Array.from(bySize.values()).sort((a, b) => compareSizes(a.size, b.size));
 };
 
 // ─── Resolve the effective price for one size entry ───────────────────────────
@@ -116,7 +117,7 @@ export const resolveSizePrice = (product, sizeEntry, isReseller = false) => {
 export const findSizeEntry = (product, size) => {
   if (!product?.sizeEnabled || size === undefined || size === null || size === '') return null;
   const list = product.sizeStock || [];
-  return list.find((s) => Number(s.size) === Number(size)) || null;
+  return list.find((s) => sizesEqual(s.size, size)) || null;
 };
 
 // ─── Find the matching colour variant within a size entry ─────────────────────

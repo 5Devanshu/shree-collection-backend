@@ -5,6 +5,7 @@ import {
   findSizeEntry, findColorVariant,
   resolveSizePrice, resolveVariantImage, resolveVariantStock,
 } from '../product/product.service.js';
+import { normalizeSize } from '../../utils/size.js';
 
 const getOrCreateCart = async (sessionId) => {
   const [cart] = await Cart.findOrCreate({
@@ -15,7 +16,7 @@ const getOrCreateCart = async (sessionId) => {
 };
 
 const normalizeSizeKey = (size) =>
-  size === undefined || size === null || size === '' ? null : Number(size);
+  size === undefined || size === null || size === '' ? null : normalizeSize(size);
 
 // Colour is compared case-insensitively as free text (matches
 // findColorVariant's own matching rule).

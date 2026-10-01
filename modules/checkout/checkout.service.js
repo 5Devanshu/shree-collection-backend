@@ -9,6 +9,7 @@ import PendingCheckout  from './pendingCheckout.model.js';
 import { decrementStockForItems } from '../order/order.service.js';
 import { sendOrderConfirmationEmail } from '../../services/brevo.service.js';
 import Cart from '../cart/cart.model.js';
+import { normalizeSize } from '../../utils/size.js';
 import {
   findSizeEntry, findColorVariant,
   resolveSizePrice, resolveVariantImage,
@@ -98,7 +99,7 @@ export const validateCartService = async (items, isReseller = false) => {
 
     validated.push({
       productId: product.id,
-      size:      product.sizeEnabled ? Number(item.size) : null,
+      size:      product.sizeEnabled ? normalizeSize(item.size) : null,
       color:     resolvedColor || null,
       title:     product.title,
       material:  product.material,
