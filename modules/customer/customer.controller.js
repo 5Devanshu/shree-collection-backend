@@ -30,15 +30,12 @@ const issueOtp = async (customer) => {
   if (!customer.email)
     throw new Error('This account has no email address — please log in with your password.');
   const otp = crypto.randomInt(100000, 999999).toString();
-  const sent = await sendOtpEmail(customer.email, otp);
-  if (!sent) {
-    throw new Error('Unable to send OTP email. Please try again later.');
-  }
   await customer.update({
     otpHash:      hashOtp(otp),
     otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
     otpAttempts:  0,
   });
+  await sendOtpEmail(customer.email, otp);
 };
 
 // ── POST /api/customers/register ─────────────────────────────────────────────
