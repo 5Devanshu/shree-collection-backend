@@ -82,17 +82,6 @@ export const sendOtpEmail = (to, otp) =>
       <p style="font-size:13px;color:#888">If you didn't request this, you can ignore this email.</p>`),
   });
 
-// ── Periodic Brevo health check ────────────────────────────────────────────────
-export const sendMailHealthCheckEmail = () =>
-  sendEmail({
-    to: process.env.MAIL_HEALTH_CHECK_EMAIL || 'shreecollection3006@gmail.com',
-    subject: 'Shree Collection mail service health check',
-    html: shell('Mail Service Health Check', `
-      <p>This scheduled health check confirms that Brevo transactional email is working.</p>
-      <p><strong>Sent at:</strong> ${new Date().toISOString()}</p>
-      <p>No action is required unless you receive further delivery failures.</p>`),
-  });
-
 // ── Reseller registration received ────────────────────────────────────────────
 export const sendResellerPendingEmail = (to, name) =>
   sendEmail({
