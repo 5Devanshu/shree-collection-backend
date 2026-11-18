@@ -20,6 +20,7 @@ import customerRoutes  from './modules/customer/customer.routes.js';
 
 import resellerRoutes from './modules/reseller/reseller.routes.js';
 import reviewRoutes from './modules/review/review.routes.js';
+import { sendMailHealthCheckEmail } from './services/brevo.service.js';
 // ── Sequelize Model Associations ──────────────────────────────────────────────
 // Must be imported before connectDB() so all associations are registered
 // before sequelize.sync() runs and creates foreign key columns
@@ -73,6 +74,39 @@ app.get('/', (req, res) => {
   });
 });
 
+// ── Protected Mail Health Check ──────────────────────────────────────────────
+app.post('/api/health/mail', async (req, res) => {
+  const configuredSecret = process.env.MAIL_HEALTH_CHECK_SECRET;
+  const suppliedSecret = req.header('x-mail-health-secret');
+
+  if (!configuredSecret) {
+    return res.status(500).json({
+      success: false,
+      message: 'MAIL_HEALTH_CHECK_SECRET is not configured',
+    });
+  }
+
+  if (!suppliedSecret || suppliedSecret !== configuredSecret) {
+    return res.status(401).json({
+      success: false,
+      message: 'Unauthorized',
+    });
+  }
+
+  const sent = await sendMailHealthCheckEmail();
+  if (!sent) {
+    return res.status(502).json({
+      success: false,
+      message: 'Brevo did not accept the health-check email',
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Brevo accepted the mail health-check email',
+  });
+});
+
 // ── API Routes ────────────────────────────────────────────────────────────────
 app.use('/api/auth',       authRoutes);
 app.use('/api/categories', categoryRoutes);
@@ -96,3 +130,27 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
 });
+
+// ── Automatic Mail Health Check ──────────────────────────────────────────────
+const scheduleMailHealthCheck = () => {
+  const intervalDays = Number(process.env.MAIL_HEALTH_CHECK_INTERVAL_DAYS || 30);
+  const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+
+  if (process.env.ENABLE_MAIL_HEALTH_CHECK === 'false') {
+    console.log('Mail health check disabled by ENABLE_MAIL_HEALTH_CHECK=false');
+    return;
+  }
+
+  setInterval(async () => {
+    const sent = await sendMailHealthCheckEmail();
+    console.log(
+      sent
+        ? 'Mail health check accepted by Brevo'
+        : 'Mail health check failed: Brevo did not accept the email'
+    );
+  }, intervalMs);
+
+  console.log(`Mail health check scheduled every ${intervalDays} days`);
+};
+
+scheduleMailHealthCheck();
