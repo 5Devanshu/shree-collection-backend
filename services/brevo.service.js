@@ -5,10 +5,24 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
+    if (!process.env.BREVO_API_KEY) {
+      console.error('Brevo error: BREVO_API_KEY is not configured');
+      return false;
+    }
+    if (!process.env.MAIL_FROM_EMAIL) {
+      console.error('Brevo error: MAIL_FROM_EMAIL is not configured');
+      return false;
+    }
+
     // Accept comma-separated string or array
     const recipients = Array.isArray(to)
       ? to.map(email => ({ email }))
       : String(to).split(',').map(e => ({ email: e.trim() })).filter(e => e.email);
+
+    if (recipients.length === 0) {
+      console.error('Brevo error: no valid recipient email addresses');
+      return false;
+    }
 
     const res = await fetch(BREVO_URL, {
       method: 'POST',
@@ -25,14 +39,19 @@ const sendEmail = async ({ to, subject, html }) => {
       }),
     });
 
+    const body = await res.text();
+
     if (!res.ok) {
-      const body = await res.text();
-      console.error(`Brevo error ${res.status}: ${body}`);
+      console.error(`BREVO ERROR ${res.status}: ${body}`);
       return false;
     }
+
+    console.log(`BREVO STATUS: ${res.status}`);
+    console.log(`BREVO RESPONSE: ${body}`);
+    console.log(`Email sent successfully to ${recipients.map(recipient => recipient.email).join(', ')}`);
     return true;
   } catch (err) {
-    console.error('Brevo send failed:', err.message);
+    console.error(`BREVO ERROR: ${err.message}`);
     return false;
   }
 };
