@@ -43,14 +43,6 @@ export const initiateCheckout = async (req, res) => {
     const shippingAddress =
       req.body.shippingAddress || req.body.guestAddress || req.body.address || null;
 
-    console.log('CHECKOUT INITIATE DEBUG:', {
-      isReseller,
-      state,
-      reseller: req.reseller,
-      authHeader: req.headers.authorization?.slice(0, 30),
-      itemPrices: items?.map(i => ({ title: i.title, price: i.price })),
-    });
-
     // Step 1 — Validate cart items server-side
     const validatedItems = await validateCartService(items, isReseller);
 
@@ -155,10 +147,19 @@ export const confirmCheckout = async (req, res) => {
     const phonePeTransactionId =
       statusResult.paymentDetails?.[0]?.transactionId || merchantOrderId;
 
+    // Re-resolve all line prices from product records. Never use the
+    // checkout payload's price as the amount source: it may contain a stale
+    // customer price or an altered value.
+    pending = pending || await getPendingCheckoutService(merchantOrderId);
+    let lineItems = await validateCartService(
+      validatedItems || [],
+      !!req.reseller || !!pending?.resellerId,
+      false
+    );
+
     // ── Authoritative totals ──────────────────────────────────────────────────
     // Source of truth = amount PhonePe actually captured + server-validated prices.
     // Client-sent money fields are ignored. Delivery charge = captured − subtotal.
-    const lineItems = validatedItems || [];
     const subtotal  = lineItems.length
       ? lineItems.reduce((sum, i) => sum + Number(i.price) * (i.quantity || 1), 0)
       : Number(req.body.subtotal) || 0;
@@ -240,14 +241,23 @@ export const handleWebhook = async (req, res) => {
         if (pending) {
           const phonePeTransactionId =
             callbackResponse.payload?.paymentDetails?.[0]?.transactionId || merchantOrderId;
+          const verifiedItems = await validateCartService(
+            pending.items,
+            !!pending.resellerId,
+            false
+          );
+          const { subtotal, shippingCost, total } = calculateTotalsService(
+            verifiedItems,
+            { isReseller: !!pending.resellerId, state: pending.shippingAddress?.state || '' }
+          );
 
           await confirmOrderService({
             email:           pending.email,
             shippingAddress: pending.shippingAddress,
-            validatedItems:  pending.items,
-            subtotal:        Number(pending.subtotal),
-            shippingCost:    Number(pending.shippingCost),
-            total:           Number(pending.total),
+            validatedItems:  verifiedItems,
+            subtotal,
+            shippingCost,
+            total,
             merchantOrderId,
             phonePeTransactionId,
             resellerId: pending.resellerId,

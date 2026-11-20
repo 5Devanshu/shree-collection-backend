@@ -43,7 +43,7 @@ export const calculateDeliveryCharge = ({ subtotal, isReseller = false, state = 
 };
 
 // ─── Step 1: Validate Cart ────────────────────────────────────────────────────
-export const validateCartService = async (items, isReseller = false) => {
+export const validateCartService = async (items, isReseller = false, enforceSubmittedPrice = true) => {
   if (!items || items.length === 0) throw new Error('Cart is empty');
 
   const validated = [];
@@ -88,7 +88,7 @@ export const validateCartService = async (items, isReseller = false) => {
 
     const expectedPrice = resolveSizePrice(product, sizeEntry, isReseller);
 
-    if (Number(item.price) !== expectedPrice) {
+    if (enforceSubmittedPrice && Number(item.price) !== expectedPrice) {
       throw new Error(`Price mismatch for "${product.title}". Please refresh and try again.`);
     }
 

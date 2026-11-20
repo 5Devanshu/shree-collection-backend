@@ -13,7 +13,7 @@ const getSessionId = (req) => {
 export const getCart = async (req, res) => {
   try {
     const sessionId = getSessionId(req);
-    const cart = await cartService.getCartService(sessionId);
+    const cart = await cartService.getCartService(sessionId, req.reseller != null);
     res.status(200).json({ success: true, cart });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -44,14 +44,6 @@ export const addToCart = async (req, res) => {
     const sessionId  = getSessionId(req);
     const isReseller = req.reseller != null;
 
-    console.log('CART ADD DEBUG:', {
-      isReseller,
-      reseller: req.reseller,
-      authHeader: req.headers.authorization?.slice(0, 30),
-      size: req.body?.size,
-      color: req.body?.color,
-    });
-
     const cart = await cartService.addToCartService(sessionId, req.body, isReseller);
     const count = cart.items.reduce((sum, i) => sum + i.quantity, 0);
     res.status(200).json({ success: true, cart, count });
@@ -74,7 +66,8 @@ export const updateCartItem = async (req, res) => {
       req.params.productId,
       quantity,
       size,
-      color
+      color,
+      req.reseller != null
     );
     res.status(200).json({ success: true, cart });
   } catch (error) {
@@ -95,7 +88,8 @@ export const removeFromCart = async (req, res) => {
       sessionId,
       req.params.productId,
       size,
-      color
+      color,
+      req.reseller != null
     );
     res.status(200).json({ success: true, cart });
   } catch (error) {

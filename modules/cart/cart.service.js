@@ -32,10 +32,37 @@ const itemsMatch = (item, productId, size, color) =>
   normalizeSizeKey(item.size)   === normalizeSizeKey(size) &&
   normalizeColorKey(item.color) === normalizeColorKey(color);
 
-export const getCartService = async (sessionId) => {
+const repriceCartForRole = async (cart, isReseller) => {
+  if (!cart) return null;
+  const items = [];
+  for (const item of cart.items || []) {
+    const product = await Product.findByPk(item.productId);
+    if (!product) continue;
+    const sizeEntry = product.sizeEnabled ? findSizeEntry(product, normalizeSizeKey(item.size)) : null;
+    const resolvedPrice = resolveSizePrice(product, sizeEntry, isReseller);
+    items.push({
+      ...item,
+      price: resolvedPrice,
+      title: product.title,
+      material: product.material || '',
+      image: resolveVariantImage(
+        product,
+        item.color
+          ? findColorVariant(sizeEntry || { colors: product.colors }, item.color)
+          : null
+      ),
+    });
+  }
+  cart.items = items;
+  Cart.recalculate(cart);
+  await cart.save();
+  return cart.toJSON();
+};
+
+export const getCartService = async (sessionId, isReseller = false) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) return { sessionId, items: [], subtotal: 0, shippingCost: 0, total: 0 };
-  return cart.toJSON();
+  return repriceCartForRole(cart, isReseller);
 };
 
 export const getCartCountService = async (sessionId) => {
@@ -136,7 +163,7 @@ export const addToCartService = async (sessionId, { productId, size, color, quan
   return cart.toJSON();
 };
 
-export const updateCartItemService = async (sessionId, productId, quantity, size, color) => {
+export const updateCartItemService = async (sessionId, productId, quantity, size, color, isReseller = false) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
@@ -153,17 +180,17 @@ export const updateCartItemService = async (sessionId, productId, quantity, size
   cart.items = items;
   Cart.recalculate(cart);
   await cart.save();
-  return cart.toJSON();
+  return repriceCartForRole(cart, isReseller);
 };
 
-export const removeFromCartService = async (sessionId, productId, size, color) => {
+export const removeFromCartService = async (sessionId, productId, size, color, isReseller = false) => {
   const cart = await Cart.findOne({ where: { sessionId } });
   if (!cart) throw new Error('Cart not found');
 
   cart.items = (cart.items || []).filter((i) => !itemsMatch(i, productId, size, color));
   Cart.recalculate(cart);
   await cart.save();
-  return cart.toJSON();
+  return repriceCartForRole(cart, isReseller);
 };
 
 export const clearCartService = async (sessionId) => {
