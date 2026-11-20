@@ -1,4 +1,5 @@
 import CustomPayment from './customPayment.model.js';
+import { Op } from 'sequelize';
 import { createPayment, getOrderStatus } from './phonepeV2.service.js';
 
 const phonePattern = /^[6-9]\d{9}$/;
@@ -106,6 +107,66 @@ export const processWebhook = async (payload) => {
   const payment = await CustomPayment.findOne({ where: { merchantOrderId } });
   if (!payment) return null;
   return applyGatewayStatus(payment, payload?.payload || payload, true);
+};
+
+export const getAdminCustomPayments = async ({ page = 1, limit = 20, status = '', search = '' }) => {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (safePage - 1) * safeLimit;
+  const where = {};
+
+  if (status) where.paymentStatus = String(status).toUpperCase();
+  if (search) {
+    const term = String(search).trim();
+    if (term) {
+      where[Op.or] = [
+        { merchantOrderId: { [Op.iLike]: `%${term}%` } },
+        { gatewayOrderId: { [Op.iLike]: `%${term}%` } },
+        { gatewayTransactionId: { [Op.iLike]: `%${term}%` } },
+        { customerName: { [Op.iLike]: `%${term}%` } },
+        { customerMobile: { [Op.iLike]: `%${term}%` } },
+      ];
+    }
+  }
+
+  const result = await CustomPayment.findAndCountAll({
+    where,
+    order: [['createdAt', 'DESC']],
+    limit: safeLimit,
+    offset,
+  });
+
+  return {
+    payments: result.rows,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total: result.count,
+      totalPages: Math.ceil(result.count / safeLimit) || 1,
+    },
+  };
+};
+
+export const getAdminCustomPaymentById = async (id) => {
+  const payment = await CustomPayment.findByPk(id);
+  if (!payment) throw new Error('Custom payment not found');
+  return payment;
+};
+
+export const getAdminCustomPaymentSummary = async () => {
+  const [total, completed, pending, failed, expired] = await Promise.all([
+    CustomPayment.count(),
+    CustomPayment.count({ where: { paymentStatus: 'COMPLETED' } }),
+    CustomPayment.count({ where: { paymentStatus: 'PENDING' } }),
+    CustomPayment.count({ where: { paymentStatus: 'FAILED' } }),
+    CustomPayment.count({ where: { paymentStatus: 'EXPIRED' } }),
+  ]);
+  const completedRows = await CustomPayment.findAll({
+    attributes: ['amount'],
+    where: { paymentStatus: 'COMPLETED' },
+  });
+  const totalCollected = completedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  return { total, completed, pending, failed, expired, totalCollected };
 };
 
 export { mapGatewayState };

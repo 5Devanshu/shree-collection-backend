@@ -3,7 +3,12 @@ import {
   createPayment,
   getPaymentStatus,
   handleWebhook,
+  getAdminPayments,
+  getAdminPaymentSummary,
+  getAdminPaymentById,
+  refreshAdminPaymentStatus,
 } from './customPayment.controller.js';
+import protect from '../auth/auth.middleware.js';
 
 const router = express.Router();
 
@@ -26,5 +31,9 @@ const rateLimit = (limit, windowMs) => (req, res, next) => {
 router.post('/phonepe/create', rateLimit(5, 15 * 60 * 1000), createPayment);
 router.get('/phonepe/status/:merchantOrderId', rateLimit(30, 15 * 60 * 1000), getPaymentStatus);
 router.post('/phonepe/webhook', handleWebhook);
+router.get('/admin/summary', protect, getAdminPaymentSummary);
+router.get('/admin', protect, getAdminPayments);
+router.get('/admin/:id', protect, getAdminPaymentById);
+router.post('/admin/:merchantOrderId/refresh', protect, refreshAdminPaymentStatus);
 
 export default router;

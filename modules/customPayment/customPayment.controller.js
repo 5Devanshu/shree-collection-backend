@@ -50,3 +50,39 @@ export const handleWebhook = async (req, res) => {
     return res.status(400).json({ success: false, message: error.message });
   }
 };
+
+export const getAdminPayments = async (req, res) => {
+  try {
+    const result = await customPaymentService.getAdminCustomPayments(req.query);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAdminPaymentSummary = async (_req, res) => {
+  try {
+    const summary = await customPaymentService.getAdminCustomPaymentSummary();
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getAdminPaymentById = async (req, res) => {
+  try {
+    const payment = await customPaymentService.getAdminCustomPaymentById(req.params.id);
+    res.json({ success: true, data: payment });
+  } catch (error) {
+    res.status(404).json({ success: false, message: error.message });
+  }
+};
+
+export const refreshAdminPaymentStatus = async (req, res) => {
+  try {
+    const payment = await customPaymentService.checkCustomPayment(req.params.merchantOrderId);
+    res.json({ success: true, data: payment });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
