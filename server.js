@@ -20,10 +20,12 @@ import customerRoutes  from './modules/customer/customer.routes.js';
 
 import resellerRoutes from './modules/reseller/reseller.routes.js';
 import reviewRoutes from './modules/review/review.routes.js';
+import customPaymentRoutes from './modules/customPayment/customPayment.routes.js';
 // ── Sequelize Model Associations ──────────────────────────────────────────────
 // Must be imported before connectDB() so all associations are registered
 // before sequelize.sync() runs and creates foreign key columns
 import './models/associations.js';
+import './modules/customPayment/customPayment.model.js';
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 dotenv.config();
@@ -60,7 +62,11 @@ app.use(cors(corsOptions));
 
 // ── General Middleware ────────────────────────────────────────────────────────
 app.use(morgan('dev'));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buffer) => {
+    req.rawBody = Buffer.from(buffer);
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // ── Health Check ──────────────────────────────────────────────────────────────
@@ -86,6 +92,7 @@ app.use('/api/search',     searchRoutes);
 app.use('/api/resellers', resellerRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/payments', customPaymentRoutes);
 
 // ── Error Handling ────────────────────────────────────────────────────────────
 app.use(notFound);
